@@ -48,6 +48,12 @@ void gamepad_inject(uint8_t mask);
 /* Enable/disable the BOOT-button fallback (default: enabled). */
 void gamepad_set_fallback(bool enabled);
 
+/* Map one raw Bluepad32-style gamepad report to an NES_PAD_* mask.
+ * Exposed for host unit tests; the firmware calls it for every controller
+ * report.  Buttons/misc_buttons/dpad are the corresponding `uni_gamepad_t`
+ * bitfields, axis_* are -512..511. */
+uint8_t gamepad_map_raw(uint16_t buttons, uint8_t misc_buttons, uint8_t dpad, int32_t axis_x, int32_t axis_y);
+
 #ifdef __cplusplus
 }
 #endif
