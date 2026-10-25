@@ -71,12 +71,15 @@ nes_port_run();                      /* blocking; returns ESP_OK on quit      */
 |---|---|---|---|---|---|
 | twin_dragons.nes 40 KB | 0 | flash mmap, no display | 59.86 | 152/152 | 9.60 ms |
 | twin_dragons.nes 40 KB | 0 | RAM copy, no display | 60.31 | 121/121 | 9.37 ms |
-| twin_dragons.nes 40 KB | 0 | flash mmap + display | **59.19** | 189/210 (90 %) | 16.6 = 9.08 + 8.37 ms |
-| nova.nes 256 KB | 1 | flash mmap, no display | 59.91 | 151/151 | 7.78 ms |
-| nova.nes 256 KB | 1 | RAM copy, no display | 60.22 | 121/121 | 7.43 ms |
-| nova.nes 256 KB | 1 | flash mmap + display | **59.80** | 206/210 (98 %) | 16.1 = 8.13 + 8.13 ms |
-| 01.basics.nes 16 KB (sprite hit) | 0 | flash mmap + display | **60.05** | 211/211 (100 %) | 16.0 = 7.42 + 8.55 ms |
+| twin_dragons.nes 40 KB | 0 | flash mmap + display | **60.03** | 208/211 (99 %) | 16.4 = 8.8 + 7.7 ms |
+| nova.nes 256 KB | 1 | flash mmap, no display | 59.95 | 151/151 | 7.7 ms |
+| nova.nes 256 KB | 1 | RAM copy, no display | 60.26 | 121/121 | 7.4 ms |
+| nova.nes 256 KB | 1 | flash mmap + display | **60.02** | 210/210 (100 %) | 15.4 = 7.7 + 7.7 ms |
+| 01.basics.nes 16 KB (sprite hit) | 0 | flash mmap + display | **60.11** | 210/210 (100 %) | 14.6 = 6.9 + 7.7 ms |
 | twin_dragons.nes, integrated MiniMario app | 0 | flash + display | **59.97** | — | Lead-verified |
+
+Display numbers are with the final direct-SPI display driver (FIT sink ~7.6 ms;
+the earlier driver was ~8.4 ms and gave 189/210 drawn for twin_dragons).
 
 - **Heap used by the emulator:** 20,160 B (NROM) / 28,328 B (MMC1 + CHR-RAM),
   including the 8 KB battery SRAM and 8 KB VRAM allocated by the core.
@@ -87,6 +90,18 @@ nes_port_run();                      /* blocking; returns ESP_OK on quit      */
   the same ROM); reloading a ROM reproduces the exact checksum sequence.
 - Runs were clean (no crash/WDT) and every `nes_port_run()` returned to the
   caller with the heap back at its pre-run level.
+- **50 s soak** (sprite-hit ROM, display sink active every frame, per-second
+  FNV logging): 3,006 emulated frames at 60.07–60.10 fps, **0 skipped frames, all
+  3,006 displayed**, avg frame 14.64 ms = 7.01 ms core + 7.63 ms display,
+  display avg 7.62 ms, free heap constant at 306,396 B for the whole run (no
+  leak), FNV checksum `d4faff0a` constant for all 50 s.
+- **Determinism / regression test:** the frame-boundary checksums (run-end and
+  after a fresh ROM reload) are bit-identical before and after the
+  float->int scanline-timing optimisation for all 4 phases × 3 ROMs, e.g.
+  twin_dragons 8eaf877a (phases 1–3) and 3a48916c (fresh reload),
+  nova 1226717b/a74c6a4b/009ae081/b94e191d, sprite basics d4faff0a.  (The
+  per-500 ms monitor samples are asynchronous grabs and may catch a
+  partially-rendered frame, so they are not used for equality checks.)
 
 ## 4. Debug / verification helpers
 

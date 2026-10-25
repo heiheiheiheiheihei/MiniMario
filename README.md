@@ -47,6 +47,10 @@
 | [Twin Dragons](https://github.com/Garydos/twin-dragons-nes) | 横版过关（马里奥 3 风格） | 40 KB | 代码 zlib，美术 CC-BY 3.0 |
 | [Nova the Squirrel](https://github.com/NovaSquirrel/NovaTheSquirrel) | 横版解谜平台 | 256 KB | 代码 GPLv3，素材 CC-BY-NC-SA 4.0 |
 
+| Nova the Squirrel（Mapper 1，flash mmap） | Twin Dragons 游戏中 |
+|---|---|
+| ![Nova](docs/screenshots/game_nova.png) | ![Twin Dragons](docs/screenshots/game_twin_dragons.png) |
+
 ## 4. 手柄
 
 ### 4.1 重要：C6 只支持 BLE 手柄
@@ -148,7 +152,27 @@ python tools/serial.py -s "key right+a"        # 注入按键
 3. 红蓝反了：`bgr 1`。
 4. 画面位置/宽度不对：`scale 0/1/2`。
 
-## 7. 编译
+## 7. 固件文件（firmware/）
+
+本目录里的 `firmware/` 是已经在本机验证并烧录过的成品：
+
+| 文件 | 说明 |
+|---|---|
+| `MiniMario-full-esp32c6.bin` | **完整镜像**（bootloader + 分区表 + app + 内置 ROM），一条命令烧录 |
+| `MiniMario-app.bin` | 仅应用（0x10000） |
+| `roms.bin` | 内置 ROM 容器（0x1F0000） |
+| `flash_all.sh` | 一键烧录脚本 |
+
+```bash
+cd firmware && ./flash_all.sh /dev/ttyACM0      # 或者
+python -m esptool --chip esp32c6 -p /dev/ttyACM0 write_flash 0x0 MiniMario-full-esp32c6.bin
+```
+
+> 说明：本文档里的游戏截图是**从设备串口导出的 NES 帧缓冲转成 PNG** 的（`tools/shot.py`），
+> 证明模拟器和渲染链路正确；物理屏幕的方向/镜像/颜色请用 `test` 校准图在真机上确认
+> （见第 6 节），不对就用 `rot` / `bgr` 调整。
+
+## 8. 编译
 
 需要 ESP-IDF v5.3.x（本项目在 v5.3.2 验证）。
 
@@ -166,7 +190,7 @@ python tools/pack_roms.py /tmp/roms/twin_dragons.nes /tmp/roms/nova.nes -o roms.
 python tools/flash_rom.py --container roms.bin
 ```
 
-## 8. 性能实测（160 MHz，无 PSRAM）
+## 9. 性能实测（160 MHz，无 PSRAM）
 
 | 项目 | 数值 |
 |---|---|
@@ -179,7 +203,7 @@ python tools/flash_rom.py --container roms.bin
 | 固件大小 | ~950 KB（app 分区 1.9 MB） |
 | 启动到菜单 | ~0.9 s |
 
-## 9. 目录结构 / 架构
+## 10. 目录结构 / 架构
 
 ```
 components/nofrendo/    nofrendo NES 内核（GPLv2，已打 C6/IDF5 补丁，见 PATCHES.md）
@@ -195,7 +219,7 @@ docs/                   文档与截图
 
 数据流：`nofrendo PPU → 256×240 8bpp 缓冲 →(托盘软化/缩放)→ 320×172 →(转置)→ 172×320 RGB565 → SPI DMA → ST7789`
 
-## 10. 已知限制
+## 11. 已知限制
 
 - **没有声音**（板子无音频硬件）
 - **BLE only**：PS5/PS4/Switch/Wii 等经典蓝牙手柄不能直连（硬件限制）
@@ -204,7 +228,7 @@ docs/                   文档与截图
 - 模拟器是软件实现，个别 Mapper 4/5 复杂游戏可能掉帧
 - 无自动存档 / 即时存档（nofrendo 的 snes 存档未接到 FS）
 
-## 11. 许可与版权
+## 12. 许可与版权
 
 - nofrendo：GPLv2（© 1998-2000 Matthew Conte 等）
 - 本项目其余代码：GPLv3（与 nofrendo 兼容）
@@ -212,7 +236,7 @@ docs/                   文档与截图
 - 内置游戏版权见第 3 节；**不包含任何任天堂版权 ROM**
 - "Nintendo"、"Super Mario Bros." 等为任天堂商标；本项目仅为个人硬件 DIY 用途
 
-## 12. 快速检查清单
+## 13. 快速检查清单
 
 ```
 [+] 上电 → 菜单显示 2 个内置 ROM

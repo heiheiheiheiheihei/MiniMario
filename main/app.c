@@ -72,6 +72,7 @@ static int s_bl = 80;
 static int s_bgr = 0;
 
 static int64_t s_hold_ui_until; /* `test` keeps the test pattern on screen */
+static int64_t s_menu_ignore_pad_until; /* ignore held buttons right after quitting a game */
 
 /* ------------------------------------------------------------------ */
 /* NVS settings                                                        */
@@ -399,6 +400,9 @@ static void do_play(int index, const char *path)
 
     rom_store_unload();
     acquire_canvas();
+    /* The START+SELECT combo may still be held while we return to the menu:
+     * swallow input for a moment so the menu does not immediately relaunch. */
+    s_menu_ignore_pad_until = esp_timer_get_time() + 800 * 1000;
     ui_menu_refresh();
 }
 
@@ -441,7 +445,7 @@ static void menu_loop(void)
         int64_t now = esp_timer_get_time();
         uint8_t pad = gamepad_read();
 
-        if (now < ignore_pad_until) {
+        if (now < ignore_pad_until || now < s_menu_ignore_pad_until) {
             prev_pad = pad;
         } else {
             uint8_t pressed = pad & (uint8_t)~prev_pad;
