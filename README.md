@@ -196,8 +196,8 @@ python tools/flash_rom.py --container roms.bin
 |---|---|
 | 模拟帧率（Twin Dragons，Mapper 0） | **59.97 fps**（目标 60.0988） |
 | 模拟帧率（Nova，Mapper 1，256 KB flash mmap） | **59.80 fps** |
-| 单帧耗时 | 核心 ~9.1 ms + 显示 **7.6 ms（FIT）/ 11.4 ms（FILL）/ 7.1 ms（PIXEL）**（80 MHz SPI，直接 DMA） |
-| 显示满帧能力 | FIT 模式约 95% 时间受 SPI 带宽限制（72 KB/帧），60 fps 预算内可画满 |
+| 单帧耗时 | 核心 ~7–9 ms + 显示 **~9.9 ms（FIT）/ ~13 ms（FILL）**（80 MHz SPI，每带重建窗口的标准 ST7789 写入序列） |
+| 显示满帧能力 | FIT 模式约 80% 时间受 SPI 带宽限制（72 KB/帧）+ 命令开销；模拟器仍 60 fps，显示按需跳帧 |
 | 实际显示帧率 | ~90–98%（FIT 模式下更多帧被绘制） |
 | 模拟器堆占用 | **20–28 KB**（ROM 用 flash mmap 时） |
 | 固件大小 | ~950 KB（app 分区 1.9 MB） |

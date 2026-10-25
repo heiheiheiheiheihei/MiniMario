@@ -82,7 +82,6 @@ static const char *TAG = "display";
 
 /* DMA chunk size: 32 panel rows (~11 KB).  Two of them are ping-ponged. */
 #define CHUNK_ROWS 32
-#define FIRST_CHUNK_ROWS 8
 #define CHUNK_PIXELS (PANEL_W * CHUNK_ROWS)
 #define SPI_QUEUE_DEPTH 4
 
@@ -92,7 +91,6 @@ static bool s_inited;
 
 /* Ping-pong chunk buffers.  Static DRAM is DMA capable on the ESP32-C6. */
 static uint16_t s_chunk[2][CHUNK_PIXELS] __attribute__((aligned(4)));
-static spi_transaction_t s_tx_col[2];
 
 static display_rotation_t s_rot = DISPLAY_ROT_90;
 static display_scale_t s_scale = DISPLAY_SCALE_FIT;
@@ -194,69 +192,6 @@ static void tx_err(esp_err_t err, const char *what)
     s_tx_errors++;
     s_last_tx_error = (uint32_t)err;
     ESP_LOGE(TAG, "%s failed: %s", what, esp_err_to_name(err));
-}
-
-/* Queue one colour chunk (no command, "memory write continue"). */
-static esp_err_t panel_queue_color(int buf, int rows)
-{
-    spi_transaction_t *t = &s_tx_col[buf];
-    memset(t, 0, sizeof(*t));
-    t->length = (size_t)rows * PANEL_W * 2 * 8;
-    t->tx_buffer = s_chunk[buf];
-    t->user = (void *)1; /* D/C high */
-    esp_err_t err = spi_device_queue_trans(s_dev, t, portMAX_DELAY);
-    if (err != ESP_OK) tx_err(err, "queue colour");
-    return err;
-}
-
-/* Start a full-width window write: window commands + RAMWR, then queue the
- * first colour chunk while the bus is still locked so CS stays asserted. */
-static esp_err_t panel_start_write(int y, int rows, int buf)
-{
-    uint16_t x0 = LCD_GAP_X;
-    uint16_t x1 = (uint16_t)(LCD_GAP_X + PANEL_W - 1);
-    uint16_t y0 = (uint16_t)y;
-    uint16_t y1 = (uint16_t)(y + rows - 1);
-    uint8_t caset[4] = {x0 >> 8, x0 & 0xff, x1 >> 8, x1 & 0xff};
-    uint8_t raset[4] = {y0 >> 8, y0 & 0xff, y1 >> 8, y1 & 0xff};
-
-    esp_err_t err = spi_device_acquire_bus(s_dev, portMAX_DELAY);
-    if (err != ESP_OK) return err;
-    err = lcd_cmd_params(0x2A, caset, 4);
-    if (err == ESP_OK) err = lcd_cmd_params(0x2B, raset, 4);
-    if (err == ESP_OK) {
-        uint8_t ramwr = 0x2C;
-        spi_transaction_t t_cmd = {
-            .length = 8,
-            .tx_buffer = &ramwr,
-            .user = (void *)0,
-            .flags = SPI_TRANS_CS_KEEP_ACTIVE,
-        };
-        err = spi_device_polling_transmit(s_dev, &t_cmd);
-        if (err == ESP_OK) {
-            spi_transaction_t *t = &s_tx_col[buf];
-            memset(t, 0, sizeof(*t));
-            t->length = (size_t)rows * PANEL_W * 2 * 8;
-            t->tx_buffer = s_chunk[buf];
-            t->user = (void *)1;
-            err = spi_device_queue_trans(s_dev, t, portMAX_DELAY);
-        }
-    }
-    spi_device_release_bus(s_dev);
-    return err;
-}
-
-/* Wait for the oldest queued colour transaction (bounded, so a failed queue
- * can never deadlock the presenter). */
-static bool panel_wait_color(void)
-{
-    spi_transaction_t *done = NULL;
-    esp_err_t err = spi_device_get_trans_result(s_dev, &done, pdMS_TO_TICKS(200));
-    if (err != ESP_OK) {
-        tx_err(err, "wait colour");
-        return false;
-    }
-    return true;
 }
 
 /* Blit a rectangle in one go (slow, only for debug / full-panel clear). */
@@ -594,42 +529,26 @@ static void conv_ui_band(void *ctx, int v, int rows, uint16_t *dst)
     }
 }
 
-/* Present `rows_total` physical rows starting at y0, converting one chunk while
- * the previous one is being transferred.  Returns the conversion time. */
+/* Present `rows_total` physical rows starting at y0.  Each band gets its own
+ * CASET/RASET + RAMWR sequence (the standard ST7789 write sequence); relying on
+ * "memory write continue" across CS boundaries left most of the panel black in
+ * the first hardware test, so we do not take that shortcut.  Returns the
+ * conversion time. */
 static uint32_t stream_frame(int y0, int rows_total, band_conv_fn conv, void *ctx)
 {
     uint32_t conv_us = 0;
     int v = y0, end = y0 + rows_total;
-    int nbands = 0, queued = 0, reaped = 0;
 
     while (v < end) {
-        int rows = (nbands == 0) ? FIRST_CHUNK_ROWS : CHUNK_ROWS;
+        int rows = CHUNK_ROWS;
         if (v + rows > end) rows = end - v;
 
-        /* Before reusing a chunk buffer, its DMA (band nbands-2) must be done. */
-        if (nbands >= 2 && panel_wait_color()) reaped++;
-
-        int buf = nbands & 1;
         uint32_t c0 = (uint32_t)esp_timer_get_time();
-        conv(ctx, v, rows, s_chunk[buf]);
+        conv(ctx, v, rows, s_chunk[0]);
         conv_us += (uint32_t)esp_timer_get_time() - c0;
 
-        esp_err_t err;
-        if (nbands == 0) {
-            err = panel_start_write(y0, rows, buf);
-            if (err != ESP_OK) tx_err(err, "start write");
-        } else {
-            err = panel_queue_color(buf, rows);
-        }
-        if (err == ESP_OK) queued++;
+        panel_write_rect(0, v, PANEL_W, rows, s_chunk[0], (size_t)rows * PANEL_W * 2);
         v += rows;
-        nbands++;
-    }
-
-    /* reap the remaining colour transactions */
-    while (reaped < queued) {
-        if (!panel_wait_color()) break;
-        reaped++;
     }
     return conv_us;
 }
@@ -1272,9 +1191,8 @@ void display_benchmark(int frames)
     ESP_LOGI(TAG, "=== display benchmark: %d frames/config, heap=%lu, MADCTL=%s, canvas=%s ===",
              frames, (unsigned long)heap0, s_bgr ? "BGR" : "RGB",
              had_canvas ? "held" : "released");
-    ESP_LOGI(TAG, "chunks: %d x %d B, first chunk %d rows; C6 SPI source clock is 80MHz "
-                  "(60MHz requests fall back to 40MHz)", 2, CHUNK_PIXELS * 2,
-             FIRST_CHUNK_ROWS);
+    ESP_LOGI(TAG, "chunks: %d x %d B, %d rows per band; C6 SPI source clock is 80MHz "
+                  "(60MHz requests fall back to 40MHz)", 2, CHUNK_PIXELS * 2, CHUNK_ROWS);
 
     static const int clocks[] = {80, 60, 40};
     static const display_rotation_t lands[] = {DISPLAY_ROT_90, DISPLAY_ROT_270};
