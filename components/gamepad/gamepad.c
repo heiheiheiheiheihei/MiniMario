@@ -479,6 +479,17 @@ void gamepad_inject(uint8_t mask)
     s_inject_mask = mask;
 }
 
+void gamepad_pause_scan(bool pause)
+{
+    if (pause) {
+        uni_bt_stop_scanning_safe();
+        ESP_LOGI(TAG, "BLE scanning paused");
+    } else {
+        uni_bt_start_scanning_and_autoconnect_safe();
+        ESP_LOGI(TAG, "BLE scanning resumed");
+    }
+}
+
 void gamepad_set_fallback(bool enabled)
 {
     s_fallback_enabled = enabled;

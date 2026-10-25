@@ -71,6 +71,7 @@ static int s_rot = DISPLAY_ROT_90;
 static int s_scale = DISPLAY_SCALE_FIT;
 static int s_bl = 80;
 static int s_wpad;      /* phone controller over Wi-Fi */
+static int s_wpad_wpa2; /* phone pad: 1 = WPA2-PSK, 0 = open network */
 static int s_bgr = 0;
 
 static int64_t s_hold_ui_until; /* `test` keeps the test pattern on screen */
@@ -90,10 +91,11 @@ static void settings_load(void)
         if (nvs_get_i8(h, "bl", &v) == ESP_OK && v >= 0 && v <= 100) s_bl = v;
         if (nvs_get_i8(h, "bgr", &v) == ESP_OK && v >= 0 && v <= 1) s_bgr = v;
         if (nvs_get_i8(h, "wpad", &v) == ESP_OK && (v == 0 || v == 1)) s_wpad = v;
+        if (nvs_get_i8(h, "wpauth", &v) == ESP_OK && (v == 0 || v == 1)) s_wpad_wpa2 = v;
         nvs_close(h);
     }
-    ESP_LOGI(TAG, "settings: rot=%d scale=%d bl=%d%% bgr=%d wpad=%d", s_rot, s_scale, s_bl,
-             s_bgr, s_wpad);
+    ESP_LOGI(TAG, "settings: rot=%d scale=%d bl=%d%% bgr=%d wpad=%d wpauth=%s", s_rot, s_scale,
+             s_bl, s_bgr, s_wpad, s_wpad_wpa2 ? "WPA2" : "open");
 }
 
 static void settings_store(const char *key, int value)
@@ -254,7 +256,7 @@ int app_get_scale(void) { return s_scale; }
 void app_set_wpad(int enable)
 {
     if (enable) {
-        esp_err_t e = phone_pad_start();
+        esp_err_t e = phone_pad_start_ex(s_wpad_wpa2 != 0);
         if (e != ESP_OK) {
             ESP_LOGE(TAG, "phone pad start failed: %s", esp_err_to_name(e));
             s_wpad = 0;
@@ -262,7 +264,8 @@ void app_set_wpad(int enable)
             return;
         }
         s_wpad = 1;
-        ESP_LOGI(TAG, "phone pad on: " PHONE_PAD_URL " (SSID '%s')", PHONE_PAD_SSID);
+        ESP_LOGI(TAG, "phone pad on: " PHONE_PAD_URL " (SSID '%s', auth=%s)", PHONE_PAD_SSID,
+                 s_wpad_wpa2 ? "WPA2" : "open");
     } else {
         phone_pad_stop();
         s_wpad = 0;
@@ -272,6 +275,20 @@ void app_set_wpad(int enable)
 }
 
 int app_get_wpad(void) { return s_wpad; }
+
+void app_set_wpad_wpa2(int enable)
+{
+    s_wpad_wpa2 = enable ? 1 : 0;
+    settings_store("wpauth", s_wpad_wpa2);
+    if (s_wpad) {
+        phone_pad_stop();
+        esp_err_t e = phone_pad_start_ex(s_wpad_wpa2 != 0);
+        ESP_LOGI(TAG, "phone pad restart with auth=%s: %s", s_wpad_wpa2 ? "WPA2" : "open",
+                 esp_err_to_name(e));
+    }
+}
+
+int app_get_wpad_wpa2(void) { return s_wpad_wpa2; }
 
 int app_get_bgr(void) { return display_get_bgr() ? 1 : 0; }
 
@@ -470,7 +487,7 @@ static void menu_loop(void)
         process_requests();
 
         int64_t now = esp_timer_get_time();
-        uint8_t pad = gamepad_read();
+        uint8_t pad = gamepad_read() | phone_pad_read();
 
         if (now < ignore_pad_until || now < s_menu_ignore_pad_until) {
             prev_pad = pad;
@@ -568,8 +585,9 @@ void app_run(void)
     ui_menu_init();
     console_init();
     if (s_wpad) {
-        esp_err_t e = phone_pad_start();
-        ESP_LOGI(TAG, "phone pad (NVS enabled): %s", esp_err_to_name(e));
+        esp_err_t e = phone_pad_start_ex(s_wpad_wpa2 != 0);
+        ESP_LOGI(TAG, "phone pad (NVS enabled, auth=%s): %s", s_wpad_wpa2 ? "WPA2" : "open",
+                 esp_err_to_name(e));
     }
     ui_menu_refresh();
     ui_menu_draw();

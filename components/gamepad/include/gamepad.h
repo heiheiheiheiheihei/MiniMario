@@ -48,6 +48,10 @@ void gamepad_inject(uint8_t mask);
 /* Enable/disable the BOOT-button fallback (default: enabled). */
 void gamepad_set_fallback(bool enabled);
 
+/* Pause/resume BLE scanning (e.g. while diagnosing Wi-Fi association on the
+ * single-radio C6).  Connected controllers keep working. */
+void gamepad_pause_scan(bool pause);
+
 /* Map one raw Bluepad32-style gamepad report to an NES_PAD_* mask.
  * Exposed for host unit tests; the firmware calls it for every controller
  * report.  Buttons/misc_buttons/dpad are the corresponding `uni_gamepad_t`

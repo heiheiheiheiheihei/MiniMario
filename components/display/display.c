@@ -89,8 +89,8 @@ static spi_device_handle_t s_dev;
 static SemaphoreHandle_t s_lock; /* recursive, serializes full panel operations */
 static bool s_inited;
 
-/* Ping-pong chunk buffers.  Static DRAM is DMA capable on the ESP32-C6. */
-static uint16_t s_chunk[2][CHUNK_PIXELS] __attribute__((aligned(4)));
+/* One DMA chunk buffer.  The synchronous per-band flush only needs one. */
+static uint16_t s_chunk[CHUNK_PIXELS] __attribute__((aligned(4)));
 
 static display_rotation_t s_rot = DISPLAY_ROT_90;
 static display_scale_t s_scale = DISPLAY_SCALE_FIT;
@@ -100,6 +100,7 @@ static int s_spi_mhz = LCD_SPI_FREQ_MHZ;
 
 /* ---- UI state ---- */
 static uint16_t s_pal_ui[16];
+static uint8_t s_canvas_mem[DISPLAY_W * DISPLAY_H] __attribute__((aligned(4)));
 static uint8_t *s_canvas;          /* 8bpp, 320*172 bytes (or 172*320 when portrait) */
 static int s_canvas_w = DISPLAY_W; /* logical dims of the canvas for current rotation */
 static int s_canvas_h = DISPLAY_H;
@@ -544,10 +545,10 @@ static uint32_t stream_frame(int y0, int rows_total, band_conv_fn conv, void *ct
         if (v + rows > end) rows = end - v;
 
         uint32_t c0 = (uint32_t)esp_timer_get_time();
-        conv(ctx, v, rows, s_chunk[0]);
+        conv(ctx, v, rows, s_chunk);
         conv_us += (uint32_t)esp_timer_get_time() - c0;
 
-        panel_write_rect(0, v, PANEL_W, rows, s_chunk[0], (size_t)rows * PANEL_W * 2);
+        panel_write_rect(0, v, PANEL_W, rows, s_chunk, (size_t)rows * PANEL_W * 2);
         v += rows;
     }
     return conv_us;
@@ -578,22 +579,17 @@ void display_show_nes_frame(const uint8_t *indexed, const uint16_t *palette565)
 esp_err_t display_ui_acquire(void)
 {
     if (s_canvas) return ESP_OK;
-    size_t bytes = (size_t)s_canvas_w * s_canvas_h;
-    s_canvas = heap_caps_malloc(bytes, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-    if (!s_canvas) {
-        ESP_LOGE(TAG, "not enough RAM for UI canvas (%u bytes)", (unsigned)bytes);
-        return ESP_ERR_NO_MEM;
-    }
-    memset(s_canvas, 0, bytes);
+    /* Static DRAM buffer: the Wi-Fi/BT stacks fragment the heap enough that a
+     * runtime 55 KB malloc can fail by a few hundred bytes, so the canvas lives
+     * in .bss and "release" only marks it unused. */
+    s_canvas = s_canvas_mem;
+    memset(s_canvas, 0, (size_t)s_canvas_w * s_canvas_h);
     return ESP_OK;
 }
 
 void display_ui_release(void)
 {
-    if (s_canvas) {
-        heap_caps_free(s_canvas);
-        s_canvas = NULL;
-    }
+    s_canvas = NULL;
 }
 
 const uint8_t *display_ui_canvas(void) { return s_canvas; }
@@ -735,11 +731,11 @@ void display_fill(uint16_t color)
 {
     if (!s_inited) return;
     xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
-    for (int i = 0; i < CHUNK_PIXELS; i++) s_chunk[0][i] = color;
+    for (int i = 0; i < CHUNK_PIXELS; i++) s_chunk[i] = color;
     for (int y = 0; y < PANEL_H; y += CHUNK_ROWS) {
         int rows = PANEL_H - y;
         if (rows > CHUNK_ROWS) rows = CHUNK_ROWS;
-        panel_write_rect(0, y, PANEL_W, rows, s_chunk[0], (size_t)rows * PANEL_W * 2);
+        panel_write_rect(0, y, PANEL_W, rows, s_chunk, (size_t)rows * PANEL_W * 2);
     }
     xSemaphoreGiveRecursive(s_lock);
 }
@@ -757,8 +753,8 @@ void display_blit(int x, int y, int w, int h, const uint16_t *pixels)
         int rows = h - r;
         if (rows > rows_per_chunk) rows = rows_per_chunk;
         size_t bytes = (size_t)w * rows * 2;
-        memcpy(s_chunk[0], pixels + (size_t)r * w, bytes);
-        panel_write_rect(x, y + r, w, rows, s_chunk[0], bytes);
+        memcpy(s_chunk, pixels + (size_t)r * w, bytes);
+        panel_write_rect(x, y + r, w, rows, s_chunk, bytes);
     }
     xSemaphoreGiveRecursive(s_lock);
 }
@@ -1191,8 +1187,8 @@ void display_benchmark(int frames)
     ESP_LOGI(TAG, "=== display benchmark: %d frames/config, heap=%lu, MADCTL=%s, canvas=%s ===",
              frames, (unsigned long)heap0, s_bgr ? "BGR" : "RGB",
              had_canvas ? "held" : "released");
-    ESP_LOGI(TAG, "chunks: %d x %d B, %d rows per band; C6 SPI source clock is 80MHz "
-                  "(60MHz requests fall back to 40MHz)", 2, CHUNK_PIXELS * 2, CHUNK_ROWS);
+    ESP_LOGI(TAG, "chunk: %d B, %d rows per band; C6 SPI source clock is 80MHz "
+                  "(60MHz requests fall back to 40MHz)", CHUNK_PIXELS * 2, CHUNK_ROWS);
 
     static const int clocks[] = {80, 60, 40};
     static const display_rotation_t lands[] = {DISPLAY_ROT_90, DISPLAY_ROT_270};

@@ -91,15 +91,16 @@ ESP32-C6 的蓝牙是 **Bluetooth LE 5 only**，没有经典蓝牙（BR/EDR）�
 不需要装 App，iPhone / Android 都能用：
 
 1. 串口控制台执行 **`wpad on`**（会记住，以后开机自动开；`wpad off` 关闭）
-2. 手机 Wi-Fi 连接热点：**SSID `MiniMario` / 密码 `minimario`**
+2. 手机 Wi-Fi 连接热点：**SSID `MiniMario-Pad`（开放网络，无密码）**
 3. 手机浏览器打开 **http://192.168.4.1/** → 出现虚拟十字键 + A/B/Start/Select，直接玩（横屏更好）
 
+页面顶部会显示「板子收到: 0x..」——按按钮时这个数值变化说明指令已经到达板子（这是最快的排障手段）。
 固件内置自检（不需要手机）：`wpad test` → 正常输出
 `OK wpad selftest: http status=200 page=ok (6817/6817 bytes) websocket=ok keepalive=ok`
 实测 Wi-Fi 热点运行中模拟器仍 **59.99 fps**；手机断开 1.2 秒后按键自动释放。详见
 [components/phone_pad/README.md](components/phone_pad/README.md)。
 
-> 连手机热点时手机不能上网；个别 Android 机在"无互联网"时会切回移动数据，需在 Wi-Fi 设置里关闭自动切换。
+> 连板子热点时手机不能上网；个别 Android 机在"无互联网"时会切回移动数据，需在 Wi-Fi 设置里关闭自动切换。
 
 ### 4.4 蓝牙键盘当手柄（仅 Android，可选）
 
@@ -162,6 +163,7 @@ scale <0-2>               0=FIT 1=FILL 2=PIXEL
 bl <0-100>                背光
 bgr <0|1>                 颜色顺序兜底（红蓝反了就用它）
 wpad on|off|status|test   手机 Wi-Fi 手柄开关 / 状态 / 自检
+wpad press <hex> [ms]     模拟手机按键（如 01=A、0c=Start+Select），自动化测试用
 test                      显示校准测试图（判断方向/镜像/颜色）
 shot                      截图（二进制帧 + 调色板）
 ping | reboot

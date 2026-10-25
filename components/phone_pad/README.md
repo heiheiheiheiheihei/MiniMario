@@ -10,8 +10,8 @@
 
    | 项目 | 值 |
    |---|---|
-   | SSID | `MiniMario` |
-   | 密码 | `minimario` |
+   | SSID | `MiniMario-Pad`（开放网络，默认无密码） |
+   | 密码 | 默认无（`wpad auth wpa2` 时用 `minimario`） |
 
 3. 手机浏览器打开 **http://192.168.4.1/**
 4. 页面出现虚拟十字键 + A/B/START/SELECT，直接玩。手机横屏体验更好。

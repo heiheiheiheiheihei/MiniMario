@@ -21,6 +21,7 @@
     pointer-events: none;
   }
   #hud b { color: #6ee7ff; font-weight: 600; }
+  #ack { font-size: 12px; color: #6a7f95; }
   #hud .warn { color: #ffb020; }
   .pad { position: fixed; bottom: max(18px, env(safe-area-inset-bottom, 0px)); }
   #dpad {
@@ -64,7 +65,7 @@
 </style>
 </head>
 <body>
-<div id="hud">MiniMario 手机手柄 · <b id="state">连接中…</b></div>
+<div id="hud">MiniMario 手机手柄 · <b id="state">连接中…</b><br><span id="ack">板子收到: --</span></div>
 
 <div id="dpad" class="pad">
   <div class="btn" id="b-up"    data-btn="up">▲</div>
@@ -88,6 +89,7 @@
   var held = new Map();          /* pointerId -> bit */
   var ws = null, wsReady = false, reconnectTimer = null;
   var stateEl = document.getElementById('state');
+  var ackEl = document.getElementById('ack');
   var lastSent = -1, lastSendAt = 0;
 
   function mask() {
@@ -119,9 +121,17 @@
       send(true);
       if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = setInterval(connect, 3000); }
     };
+    ws.onmessage = function (ev) {
+      /* Firmware echoes "A<hex>" for every frame it applies. */
+      if (typeof ev.data === 'string' && ev.data.charAt(0) === 'A') {
+        ackEl.textContent = '板子收到: 0x' + ev.data.slice(1);
+      } else if (ev.data instanceof ArrayBuffer && ev.data.byteLength > 0) {
+        ackEl.textContent = '板子收到: 0x' + String.fromCharCode(new Uint8Array(ev.data)[0]);
+      }
+    };
     ws.onclose = function () {
       wsReady = false; lastSent = -1;
-      setState('已断开，重连中…', true);
+      setState('已断开，重连中…（关闭 VPN/代理后刷新页面）', true);
       sendForceZero();
     };
     ws.onerror = function () { wsReady = false; setState('连接错误，重试中…', true); };

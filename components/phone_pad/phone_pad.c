@@ -7,6 +7,7 @@
  * sent every 100 ms, so a phone that goes away cannot leave a key stuck.
  */
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 
 #include "freertos/FreeRTOS.h"
@@ -18,6 +19,7 @@
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
+#include "esp_mac.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
@@ -40,7 +42,46 @@ static esp_netif_t *s_ap_netif;
 static bool s_running;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t s_mask;
+static bool s_use_password;
+static int s_stations;
 static volatile int64_t s_last_rx_us;
+
+/* ------------------------------------------------------------------------- */
+/* Wi-Fi events: log association/auth failures so join problems are visible  */
+/* ------------------------------------------------------------------------- */
+
+static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
+{
+    (void)arg;
+    (void)base;
+    switch (id) {
+    case WIFI_EVENT_AP_PROBEREQRECVED: {
+        wifi_event_ap_probe_req_rx_t *e = (wifi_event_ap_probe_req_rx_t *)data;
+        ESP_LOGI(TAG, "probe request from " MACSTR " rssi=%d", MAC2STR(e->mac), e->rssi);
+        break;
+    }
+    case WIFI_EVENT_AP_START:
+        ESP_LOGI(TAG, "AP started");
+        break;
+    case WIFI_EVENT_AP_STACONNECTED: {
+        wifi_event_ap_staconnected_t *e = (wifi_event_ap_staconnected_t *)data;
+        s_stations++;
+        ESP_LOGI(TAG, "station joined: " MACSTR " aid=%d (stations=%d)", MAC2STR(e->mac), e->aid,
+                 s_stations);
+        break;
+    }
+    case WIFI_EVENT_AP_STADISCONNECTED: {
+        wifi_event_ap_stadisconnected_t *e = (wifi_event_ap_stadisconnected_t *)data;
+        if (s_stations > 0) s_stations--;
+        ESP_LOGW(TAG, "station left: " MACSTR " aid=%d reason=%d (stations=%d)", MAC2STR(e->mac),
+                 e->aid, e->reason, s_stations);
+        break;
+    }
+    default:
+        ESP_LOGD(TAG, "wifi event %d", (int)id);
+        break;
+    }
+}
 
 /* ------------------------------------------------------------------------- */
 /* WebSocket protocol: text frame with two hex digits, e.g. "10" = PAD_UP    */
@@ -76,6 +117,17 @@ static esp_err_t ws_handler(httpd_req_t *req)
         s_mask = (uint8_t)value;
         portEXIT_CRITICAL(&s_lock);
         s_last_rx_us = esp_timer_get_time();
+
+        /* Echo the applied mask back: the page shows "板子收到 0x..", which
+         * makes it obvious whether input reaches the firmware. */
+        char ack[12];
+        int n = snprintf(ack, sizeof(ack), "A%02x", (unsigned)s_mask);
+        httpd_ws_frame_t out = {
+            .type = HTTPD_WS_TYPE_TEXT,
+            .payload = (uint8_t *)ack,
+            .len = (size_t)n,
+        };
+        httpd_ws_send_frame(req, &out);
     }
     return ESP_OK;
 }
@@ -143,9 +195,9 @@ static esp_err_t start_http_server(void)
 {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_uri_handlers = 8;
-    cfg.max_open_sockets = 3;
+    cfg.max_open_sockets = 2;
     cfg.lru_purge_enable = true;
-    cfg.stack_size = 6144;
+    cfg.stack_size = 4096;
     esp_err_t err = httpd_start(&s_server, &cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start: %s", esp_err_to_name(err));
@@ -161,7 +213,7 @@ static esp_err_t start_http_server(void)
     return ESP_OK;
 }
 
-esp_err_t phone_pad_start(void)
+esp_err_t phone_pad_start_ex(bool use_password)
 {
     if (s_running) return ESP_OK;
 
@@ -172,6 +224,8 @@ esp_err_t phone_pad_start(void)
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
     err = esp_event_loop_create_default();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+    esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL,
+                                        NULL);
 
     s_ap_netif = esp_netif_create_default_wifi_ap();
     if (s_ap_netif == NULL) return ESP_FAIL;
@@ -186,14 +240,27 @@ esp_err_t phone_pad_start(void)
     wifi_config_t ap = {0};
     strncpy((char *)ap.ap.ssid, PHONE_PAD_SSID, sizeof(ap.ap.ssid));
     ap.ap.ssid_len = (uint8_t)strlen(PHONE_PAD_SSID);
-    strncpy((char *)ap.ap.password, PHONE_PAD_PASSWORD, sizeof(ap.ap.password));
     ap.ap.channel = 6;
-    ap.ap.max_connection = 2;
-    ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    ap.ap.max_connection = 4;
+    ap.ap.beacon_interval = 100;
+    ap.ap.ssid_hidden = 0;
+    /* PMF off: maximum compatibility with phones in both open and WPA2 mode. */
+    ap.ap.pmf_cfg.capable = false;
     ap.ap.pmf_cfg.required = false;
+    if (use_password) {
+        strncpy((char *)ap.ap.password, PHONE_PAD_PASSWORD, sizeof(ap.ap.password));
+        ap.ap.authmode = WIFI_AUTH_WPA2_PSK;
+        ap.ap.pairwise_cipher = WIFI_CIPHER_TYPE_CCMP;
+    } else {
+        ap.ap.authmode = WIFI_AUTH_OPEN;
+        ap.ap.password[0] = 0;
+        ap.ap.pairwise_cipher = WIFI_CIPHER_TYPE_NONE;
+    }
 
+    esp_wifi_set_storage(WIFI_STORAGE_RAM); /* do not persist AP config in NVS */
     err = esp_wifi_set_mode(WIFI_MODE_AP);
     if (err == ESP_OK) err = esp_wifi_set_config(WIFI_IF_AP, &ap);
+    if (err == ESP_OK) err = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
     if (err == ESP_OK) err = esp_wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "wifi start: %s", esp_err_to_name(err));
@@ -202,8 +269,9 @@ esp_err_t phone_pad_start(void)
 
     esp_netif_ip_info_t ip = {0};
     if (esp_netif_get_ip_info(s_ap_netif, &ip) == ESP_OK) {
-        ESP_LOGI(TAG, "AP up: SSID='%s' pass='%s' ip=" IPSTR " access point ready",
-                 PHONE_PAD_SSID, PHONE_PAD_PASSWORD, IP2STR(&ip.ip));
+        ESP_LOGI(TAG, "AP up: SSID='%s' auth=%s pass='%s' ip=" IPSTR " access point ready",
+                 PHONE_PAD_SSID, use_password ? "WPA2" : "OPEN",
+                 use_password ? PHONE_PAD_PASSWORD : "(none)", IP2STR(&ip.ip));
     }
 
     err = start_http_server();
@@ -213,6 +281,7 @@ esp_err_t phone_pad_start(void)
     s_mask = 0;
     portEXIT_CRITICAL(&s_lock);
     s_last_rx_us = 0;
+    s_use_password = use_password;
     s_running = true;
 
     ESP_LOGI(TAG, "phone pad ready: %s (heap=%u)", PHONE_PAD_URL,
@@ -252,6 +321,61 @@ void phone_pad_stop(void)
 
 bool phone_pad_is_running(void) { return s_running; }
 
+esp_err_t phone_pad_start(void) { return phone_pad_start_ex(false); }
+
+void phone_pad_set_debug(bool on)
+{
+    esp_log_level_set("wifi", on ? ESP_LOG_DEBUG : ESP_LOG_INFO);
+    esp_log_level_set("wifi_ap", on ? ESP_LOG_DEBUG : ESP_LOG_INFO);
+    esp_log_level_set("wifi_init", on ? ESP_LOG_DEBUG : ESP_LOG_INFO);
+    esp_log_level_set("net80211", on ? ESP_LOG_DEBUG : ESP_LOG_INFO);
+    ESP_LOGI(TAG, "wifi debug %s", on ? "on" : "off");
+}
+
+/* Scan from the device itself (AP+STA mode) so we can inspect how our own AP
+ * looks to clients: SSID, channel, security mode, RSSI. */
+esp_err_t phone_pad_scan(char *report, size_t len)
+{
+    if (!s_running) {
+        if (report) snprintf(report, len, "wpad is off");
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_wifi_set_mode(WIFI_MODE_APSTA);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    wifi_scan_config_t sc = {0};
+    sc.show_hidden = true;
+    esp_err_t err = esp_wifi_scan_start(&sc, true);
+    if (err != ESP_OK) {
+        esp_wifi_set_mode(WIFI_MODE_AP);
+        if (report) snprintf(report, len, "scan failed: %s", esp_err_to_name(err));
+        return err;
+    }
+    uint16_t num = 0;
+    esp_wifi_scan_get_ap_num(&num);
+    if (num > 16) num = 16;
+    wifi_ap_record_t recs[16];
+    uint16_t got = num;
+    esp_wifi_scan_get_ap_records(&got, recs);
+    if (report) {
+        int off = snprintf(report, len, "scan: %u AP(s)", (unsigned)got);
+        for (int i = 0; i < got && off < (int)len - 64; i++) {
+            off += snprintf(report + off, len - off, " | %s ch%d rssi%d auth%d",
+                            (const char *)recs[i].ssid, recs[i].primary, recs[i].rssi,
+                            (int)recs[i].authmode);
+        }
+    }
+    esp_wifi_set_mode(WIFI_MODE_AP);
+    return ESP_OK;
+}
+
+int phone_pad_stations(void)
+{
+    if (!s_running) return 0;
+    wifi_sta_list_t list;
+    if (esp_wifi_ap_get_sta_list(&list) != ESP_OK) return s_stations;
+    return list.num;
+}
+
 uint8_t phone_pad_read(void)
 {
     if (!s_running) return 0;
@@ -272,6 +396,98 @@ int phone_pad_clients(void)
     return (last != 0 && esp_timer_get_time() - last <= RX_TIMEOUT_US) ? 1 : 0;
 }
 
+
+/* Send one masked WebSocket text frame with `mask_value` (loopback interface).
+ * Returns 0 on success.  Used by the self test and by `wpad press`. */
+static int ws_send_mask_once(uint8_t mask_value);
+static int ws_send_mask_once(uint8_t mask_value)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct timeval tv = {.tv_sec = 2, .tv_usec = 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(80);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return -1;
+    }
+
+    const char *req =
+        "GET /ws HTTP/1.1\r\n"
+        "Host: 192.168.4.1\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n";
+    if (send(fd, req, strlen(req), 0) < 0) {
+        close(fd);
+        return -1;
+    }
+
+    char resp[512] = {0};
+    int got = 0;
+    while (got < (int)sizeof(resp) - 1) {
+        int n = recv(fd, resp + got, sizeof(resp) - 1 - got, 0);
+        if (n <= 0) break;
+        got += n;
+        if (strstr(resp, "\r\n\r\n")) break;
+    }
+    if (!strstr(resp, "101")) {
+        close(fd);
+        return -1;
+    }
+
+    static const char hex[] = "0123456789abcdef";
+    char p0 = hex[(mask_value >> 4) & 0x0f];
+    char p1 = hex[mask_value & 0x0f];
+    uint8_t frame[8] = {0x81, 0x82, 0x11, 0x22, 0x33, 0x44, 0, 0};
+    frame[6] = (uint8_t)p0 ^ 0x11;
+    frame[7] = (uint8_t)p1 ^ 0x22;
+    int rc = (send(fd, frame, sizeof(frame), 0) < 0) ? -1 : 0;
+    vTaskDelay(pdMS_TO_TICKS(30)); /* let the server process the frame */
+    close(fd);
+    return rc;
+}
+
+typedef struct {
+    uint8_t mask;
+    int ms;
+} press_req_t;
+
+static void press_task(void *arg)
+{
+    press_req_t req = *(press_req_t *)arg;
+    free(arg);
+    int64_t end = esp_timer_get_time() + (int64_t)req.ms * 1000;
+    while (esp_timer_get_time() < end) {
+        ws_send_mask_once(req.mask);
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+    vTaskDelete(NULL);
+}
+
+/* Simulate the phone holding `mask` for `ms` milliseconds (loopback WS input).
+ * Useful for automated tests: it exercises the exact same code path as a
+ * browser, without a phone. */
+esp_err_t phone_pad_press(uint8_t mask, int ms)
+{
+    if (!s_running) return ESP_ERR_INVALID_STATE;
+    press_req_t *req = calloc(1, sizeof(*req));
+    if (!req) return ESP_ERR_NO_MEM;
+    req->mask = mask;
+    req->ms = ms;
+    if (xTaskCreate(press_task, "wpad_press", 4096, req, 4, NULL) != pdPASS) {
+        free(req);
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
 
 /* ------------------------------------------------------------------------- */
 /* self test (no phone needed):                       */
@@ -355,62 +571,9 @@ static int http_get_self(int *status_out, int *len_out, char *body, size_t body_
 
 static int ws_frame_self(uint8_t mask_value)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
-
-    struct timeval tv = {.tv_sec = 2, .tv_usec = 0};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(80);
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        close(fd);
-        return -1;
-    }
-
-    const char *req =
-        "GET /ws HTTP/1.1\r\n"
-        "Host: 192.168.4.1\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-        "Sec-WebSocket-Version: 13\r\n\r\n";
-    if (send(fd, req, strlen(req), 0) < 0) {
-        close(fd);
-        return -1;
-    }
-
-    char resp[512] = {0};
-    int got = 0;
-    while (got < (int)sizeof(resp) - 1) {
-        int n = recv(fd, resp + got, sizeof(resp) - 1 - got, 0);
-        if (n <= 0) break;
-        got += n;
-        if (strstr(resp, "\r\n\r\n")) break;
-    }
-    if (!strstr(resp, "101")) {
-        close(fd);
-        return -1;
-    }
-
-    /* Client-to-server frame must be masked: FIN|TEXT, MASK|len=2, key, data */
-    static const char hex[] = "0123456789abcdef";
-    char p0 = hex[(mask_value >> 4) & 0x0f];
-    char p1 = hex[mask_value & 0x0f];
-    uint8_t frame[8] = {0x81, 0x82, 0x11, 0x22, 0x33, 0x44, 0, 0};
-    frame[6] = (uint8_t)p0 ^ 0x11;
-    frame[7] = (uint8_t)p1 ^ 0x22;
-    if (send(fd, frame, sizeof(frame), 0) < 0) {
-        close(fd);
-        return -1;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(200));
-    uint8_t applied = phone_pad_read();
-    close(fd);
-    return (applied == mask_value) ? 0 : -1;
+    if (ws_send_mask_once(mask_value) != 0) return -1;
+    vTaskDelay(pdMS_TO_TICKS(150));
+    return (phone_pad_read() == mask_value) ? 0 : -1;
 }
 
 esp_err_t phone_pad_selftest(char *report, size_t len)
@@ -448,8 +611,8 @@ esp_err_t phone_pad_selftest(char *report, size_t len)
 void phone_pad_status(char *buf, size_t len)
 {
     if (buf == NULL || len == 0) return;
-    snprintf(buf, len, "wpad=%s ssid=%s pass=%s url=%s client=%d mask=0x%02x heap=%u",
-             s_running ? "on" : "off", PHONE_PAD_SSID, PHONE_PAD_PASSWORD, PHONE_PAD_URL,
-             phone_pad_clients(), phone_pad_read(),
+    snprintf(buf, len, "wpad=%s ssid=%s auth=%s url=%s stations=%d client=%d mask=0x%02x heap=%u",
+             s_running ? "on" : "off", PHONE_PAD_SSID, s_use_password ? "WPA2" : "open",
+             PHONE_PAD_URL, phone_pad_stations(), phone_pad_clients(), phone_pad_read(),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
 }

@@ -41,7 +41,7 @@
 
 static const char *TAG = "console";
 
-#define CONSOLE_TASK_STACK 6144
+#define CONSOLE_TASK_STACK 4096
 #define CONSOLE_TASK_PRIO 3
 #define CONSOLE_LINE_MAX 160
 
@@ -138,6 +138,11 @@ static void cmd_help(void)
     out("  bl <0-100>               backlight percentage\n");
     out("  bgr <0|1>                colour order fallback (persisted)\n");
     out("  wpad on|off|status|test  phone controller over Wi-Fi: board starts the\n");
+    out("  wpad auth open|wpa2      AP security (default: open, no password)\n");
+    out("  wpad press <hex> [ms]    simulate phone holding buttons (e.g. 01=A)\n");
+    out("  wpad scan                scan Wi-Fi from the board (diagnostics)\n");
+    out("  wpad debug on|off        Wi-Fi driver debug logs (diagnostics)\n");
+    out("  bt scan on|off           pause/resume BLE scanning (diagnostics)\n");
     out("                           'MiniMario' AP, phone opens http://192.168.4.1/\n");
     out("  test                     show the display test pattern (4 s)\n");
     out("  clear                    clear the screen\n");
@@ -566,10 +571,51 @@ static void handle_line(char *line)
         } else if (!strcmp(arg, "off") || !strcmp(arg, "0")) {
             app_set_wpad(0);
             out("OK wpad=off\n");
+        } else if (!strncmp(arg, "auth", 4)) {
+            const char *v = arg + 4;
+            while (*v == ' ') v++;
+            if (!strcmp(v, "wpa2")) {
+                app_set_wpad_wpa2(1);
+                out("OK wpad auth=wpa2 (password: %s)\n", PHONE_PAD_PASSWORD);
+            } else if (!strcmp(v, "open")) {
+                app_set_wpad_wpa2(0);
+                out("OK wpad auth=open (no password)\n");
+            } else {
+                out("ERR usage: wpad auth open|wpa2\n");
+            }
+        } else if (!strncmp(arg, "press", 5)) {
+            char *rest = arg + 5;
+            while (*rest == ' ') rest++;
+            unsigned v = (unsigned)strtoul(rest, &rest, 16);
+            while (*rest == ' ') rest++;
+            int ms = *rest ? atoi(rest) : 300;
+            if (ms < 50) ms = 50;
+            if (ms > 5000) ms = 5000;
+            esp_err_t e = phone_pad_press((uint8_t)v, ms);
+            out("%s wpad press mask=0x%02x for %d ms\n", e == ESP_OK ? "OK" : "ERR", v, ms);
+        } else if (!strncmp(arg, "scan", 4)) {
+            static char rep[480];
+            esp_err_t e = phone_pad_scan(rep, sizeof(rep));
+            out("%s %s\n", e == ESP_OK ? "OK" : "ERR", rep);
+        } else if (!strncmp(arg, "debug", 5)) {
+            const char *v = arg + 5;
+            while (*v == ' ') v++;
+            phone_pad_set_debug(strcmp(v, "off") != 0);
+            out("OK wpad debug %s\n", strcmp(v, "off") != 0 ? "on" : "off");
         } else {
             char st[160];
             phone_pad_status(st, sizeof(st));
             out("INFO %s\n", st);
+        }
+    } else if (!strcmp(cmd, "bt")) {
+        if (!strcmp(arg, "scan off")) {
+            gamepad_pause_scan(true);
+            out("OK bt scan=off\n");
+        } else if (!strcmp(arg, "scan on")) {
+            gamepad_pause_scan(false);
+            out("OK bt scan=on\n");
+        } else {
+            out("ERR usage: bt scan on|off\n");
         }
     } else if (!strcmp(cmd, "bgr")) {
         int v = atoi(arg);
