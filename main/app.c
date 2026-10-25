@@ -31,6 +31,7 @@
 #include "display.h"
 #include "gamepad.h"
 #include "nes_port.h"
+#include "phone_pad.h"
 #include "pad.h"
 #include "minimario.h"
 #include "app.h"
@@ -69,6 +70,7 @@ static char s_last_error[96];
 static int s_rot = DISPLAY_ROT_90;
 static int s_scale = DISPLAY_SCALE_FIT;
 static int s_bl = 80;
+static int s_wpad;      /* phone controller over Wi-Fi */
 static int s_bgr = 0;
 
 static int64_t s_hold_ui_until; /* `test` keeps the test pattern on screen */
@@ -87,9 +89,11 @@ static void settings_load(void)
         if (nvs_get_i8(h, "scale", &v) == ESP_OK && v >= 0 && v <= 2) s_scale = v;
         if (nvs_get_i8(h, "bl", &v) == ESP_OK && v >= 0 && v <= 100) s_bl = v;
         if (nvs_get_i8(h, "bgr", &v) == ESP_OK && v >= 0 && v <= 1) s_bgr = v;
+        if (nvs_get_i8(h, "wpad", &v) == ESP_OK && (v == 0 || v == 1)) s_wpad = v;
         nvs_close(h);
     }
-    ESP_LOGI(TAG, "settings: rot=%d scale=%d bl=%d%% bgr=%d", s_rot, s_scale, s_bl, s_bgr);
+    ESP_LOGI(TAG, "settings: rot=%d scale=%d bl=%d%% bgr=%d wpad=%d", s_rot, s_scale, s_bl,
+             s_bgr, s_wpad);
 }
 
 static void settings_store(const char *key, int value)
@@ -247,6 +251,28 @@ void app_set_bgr(int enable)
 
 int app_get_rotation(void) { return s_rot; }
 int app_get_scale(void) { return s_scale; }
+void app_set_wpad(int enable)
+{
+    if (enable) {
+        esp_err_t e = phone_pad_start();
+        if (e != ESP_OK) {
+            ESP_LOGE(TAG, "phone pad start failed: %s", esp_err_to_name(e));
+            s_wpad = 0;
+            settings_store("wpad", 0);
+            return;
+        }
+        s_wpad = 1;
+        ESP_LOGI(TAG, "phone pad on: " PHONE_PAD_URL " (SSID '%s')", PHONE_PAD_SSID);
+    } else {
+        phone_pad_stop();
+        s_wpad = 0;
+        ESP_LOGI(TAG, "phone pad off");
+    }
+    settings_store("wpad", s_wpad);
+}
+
+int app_get_wpad(void) { return s_wpad; }
+
 int app_get_bgr(void) { return display_get_bgr() ? 1 : 0; }
 
 /* ------------------------------------------------------------------ */
@@ -257,6 +283,7 @@ int app_get_bgr(void) { return display_get_bgr() ? 1 : 0; }
 static uint8_t input_source(void)
 {
     uint8_t pad = gamepad_read();
+    pad |= phone_pad_read();
     int64_t now = esp_timer_get_time();
 
     static int64_t combo_since;
@@ -540,6 +567,10 @@ void app_run(void)
 
     ui_menu_init();
     console_init();
+    if (s_wpad) {
+        esp_err_t e = phone_pad_start();
+        ESP_LOGI(TAG, "phone pad (NVS enabled): %s", esp_err_to_name(e));
+    }
     ui_menu_refresh();
     ui_menu_draw();
 

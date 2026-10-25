@@ -21,6 +21,7 @@
 #include "minimario.h"
 #include "rom_store.h"
 #include "ui_menu.h"
+#include "phone_pad.h"
 
 static const char *TAG = "ui_menu";
 
@@ -314,13 +315,17 @@ static void draw_status(const layout_t *L, int count)
     int heap_kb = (int)(esp_get_free_heap_size() / 1024);
     char pad[16];
     int pads = gamepad_count();
-    if (pads > 0) {
+    if (phone_pad_clients() > 0) {
+        snprintf(pad, sizeof(pad), "phone");
+    } else if (pads > 0) {
         const gamepad_info_t *gi = gamepad_info(0);
         if (gi && gi->connected) {
             snprintf(pad, sizeof(pad), "%.10s", gi->name);
         } else {
             snprintf(pad, sizeof(pad), "1");
         }
+    } else if (phone_pad_is_running()) {
+        snprintf(pad, sizeof(pad), "wifi");
     } else {
         snprintf(pad, sizeof(pad), "none");
     }
@@ -341,8 +346,8 @@ static void draw_status(const layout_t *L, int count)
         text(fx, L->status_y, "FPS:", UI_DGRAY, UI_BLACK, 1);
         text(fx + display_ui_text_width("FPS:", 1), L->status_y, fps, UI_LGRAY, UI_BLACK, 1);
     } else {
-        snprintf(line, sizeof(line), "SD:%s R:%d/%d H:%dK", rom_store_sd_mounted() ? "OK" : "--",
-                 count > 0 ? s_sel + 1 : 0, count, heap_kb);
+        snprintf(line, sizeof(line), "SD:%s R:%d/%d H:%dK%s", rom_store_sd_mounted() ? "OK" : "--",
+                 count > 0 ? s_sel + 1 : 0, count, heap_kb, phone_pad_is_running() ? " W" : "");
         text(4, L->status_y, line, UI_LGRAY, UI_BLACK, 1);
     }
 }

@@ -86,6 +86,36 @@ ESP32-C6 的蓝牙是 **Bluetooth LE 5 only**，没有经典蓝牙（BR/EDR）�
 配对：手柄进入配对模式（Xbox：按住手柄顶部配对键 3 秒直到灯闪），板子上电后自动扫描连接。
 连接后串口会打印 `gamepad: connected ...`。
 
+### 4.3 手机当手柄（Wi-Fi 网页虚拟手柄，推荐）
+
+不需要装 App，iPhone / Android 都能用：
+
+1. 串口控制台执行 **`wpad on`**（会记住，以后开机自动开；`wpad off` 关闭）
+2. 手机 Wi-Fi 连接热点：**SSID `MiniMario` / 密码 `minimario`**
+3. 手机浏览器打开 **http://192.168.4.1/** → 出现虚拟十字键 + A/B/Start/Select，直接玩（横屏更好）
+
+固件内置自检（不需要手机）：`wpad test` → 正常输出
+`OK wpad selftest: http status=200 page=ok (6817/6817 bytes) websocket=ok keepalive=ok`
+实测 Wi-Fi 热点运行中模拟器仍 **59.99 fps**；手机断开 1.2 秒后按键自动释放。详见
+[components/phone_pad/README.md](components/phone_pad/README.md)。
+
+> 连手机热点时手机不能上网；个别 Android 机在"无互联网"时会切回移动数据，需在 Wi-Fi 设置里关闭自动切换。
+
+### 4.4 蓝牙键盘当手柄（仅 Android，可选）
+
+固件同时支持 **BLE HID 键盘**：在安卓手机装一个 "BLE HID 键盘" 类 App（把手机模拟成蓝牙键盘），
+板子会自动把它当控制器连接。键位：
+
+| 键盘 | NES |
+|---|---|
+| 方向键 / WASD | 十字键 |
+| Z / J / 空格 | A |
+| X / K | B |
+| Enter | Start |
+| Backspace / Esc | Select |
+
+（iPhone 不支持 App 模拟蓝牙外设，所以这条路只对 Android 有效。）
+
 ## 5. 添加你自己的 ROM（例如 Super Mario Bros.）
 
 > **本固件不附带任何任天堂版权 ROM。** 请使用你自己合法拥有的卡带 dump。
@@ -131,6 +161,7 @@ rot <0-3>                 屏幕方向（0/2 竖屏，1/3 横屏），存 NVS
 scale <0-2>               0=FIT 1=FILL 2=PIXEL
 bl <0-100>                背光
 bgr <0|1>                 颜色顺序兜底（红蓝反了就用它）
+wpad on|off|status|test   手机 Wi-Fi 手柄开关 / 状态 / 自检
 test                      显示校准测试图（判断方向/镜像/颜色）
 shot                      截图（二进制帧 + 调色板）
 ping | reboot
@@ -200,8 +231,9 @@ python tools/flash_rom.py --container roms.bin
 | 显示满帧能力 | FIT 模式约 80% 时间受 SPI 带宽限制（72 KB/帧）+ 命令开销；模拟器仍 60 fps，显示按需跳帧 |
 | 实际显示帧率 | ~90–98%（FIT 模式下更多帧被绘制） |
 | 模拟器堆占用 | **20–28 KB**（ROM 用 flash mmap 时） |
-| 固件大小 | ~950 KB（app 分区 1.9 MB） |
-| 启动到菜单 | ~0.9 s |
+| 固件大小 | **1.56 MB**（app 分区 1.875 MB，含 Wi-Fi/蓝牙栈） |
+| 启动到菜单 | ~0.9 s（Wi-Fi 手柄开启时额外 ~0.4 s 启动热点） |
+| 手机 Wi-Fi 手柄 | 热点运行中模拟器仍 59.99 fps；打开热点占 ~48 KB 堆 |
 
 ## 10. 目录结构 / 架构
 
@@ -209,7 +241,8 @@ python tools/flash_rom.py --container roms.bin
 components/nofrendo/    nofrendo NES 内核（GPLv2，已打 C6/IDF5 补丁，见 PATCHES.md）
 components/nes_port/    OSD 层：60 Hz 帧调度、256×240 PPU 直写缓冲、调色板、输入、统计
 components/display/     ST7789 驱动（esp_lcd）+ 横屏软件转置 + UI 画布 + 校准图
-components/gamepad/     Bluepad32 BLE 手柄 + BOOT/串口备用输入 + 主机端映射单测
+components/gamepad/     Bluepad32 BLE 手柄/键盘 + BOOT/串口备用输入 + 主机端映射单测
+components/phone_pad/   手机 Wi-Fi 网页虚拟手柄（SoftAP + HTTP + WebSocket）
 components/common/      共享按键位定义
 main/                   应用：ROM 加载（TF/Flash）、菜单、串口控制台
 third_party/bluepad32/  Bluepad32 v4.2.0 + BTstack（vendored，构建不联网）
@@ -222,7 +255,7 @@ docs/                   文档与截图
 ## 11. 已知限制
 
 - **没有声音**（板子无音频硬件）
-- **BLE only**：PS5/PS4/Switch/Wii 等经典蓝牙手柄不能直连（硬件限制）
+- **BLE only**：PS5/PS4/Switch/Wii 等经典蓝牙手柄不能直连（硬件限制）；手机控制用 Wi-Fi 网页手柄（4.3）或安卓 BLE 键盘 App（4.4）
 - 512 KB SRAM：TF 卡 ROM 上限 256 KB；更大 ROM 用 flash 分区（1.9 MB）
 - 仅支持 iNES 格式（不支持 UNIF / FDS）
 - 模拟器是软件实现，个别 Mapper 4/5 复杂游戏可能掉帧

@@ -17,6 +17,10 @@ extern "C" {
  * `gamepad_map_bits.h`. */
 uint8_t gamepad_map_raw(uint16_t buttons, uint8_t misc_buttons, uint8_t dpad, int32_t axis_x, int32_t axis_y);
 
+/* Map a BLE HID keyboard report (modifier bitmap + up to `count` usage IDs) to
+ * a NES_PAD_* mask.  Used so Android "BLE HID keyboard" apps can play. */
+uint8_t gamepad_map_keyboard(uint8_t modifiers, const uint8_t *keys, int count);
+
 #ifdef __cplusplus
 }
 #endif

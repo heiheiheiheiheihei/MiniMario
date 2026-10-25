@@ -2,7 +2,7 @@
 idf_component_register(
     SRCS "main.c" "app.c" "rom_store.c" "ui_menu.c" "console.c"
     INCLUDE_DIRS "."
-    REQUIRES display common gamepad nes_port
+    REQUIRES display common gamepad nes_port phone_pad
     PRIV_REQUIRES
         esp_timer
         nvs_flash

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0f14">
+<title>MiniMario Pad</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #0b0f14; color: #e8eef5;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #hud {
+    position: fixed; top: env(safe-area-inset-top, 8px); left: 0; right: 0;
+    text-align: center; font-size: 13px; letter-spacing: .5px; color: #8fa3b8;
+    pointer-events: none;
+  }
+  #hud b { color: #6ee7ff; font-weight: 600; }
+  #hud .warn { color: #ffb020; }
+  .pad { position: fixed; bottom: max(18px, env(safe-area-inset-bottom, 0px)); }
+  #dpad {
+    left: max(14px, env(safe-area-inset-left, 0px));
+    display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(3, 64px);
+    gap: 6px;
+  }
+  #buttons {
+    right: max(14px, env(safe-area-inset-right, 0px));
+    display: grid; grid-template-columns: 64px 64px; grid-template-rows: 64px 64px;
+    gap: 10px; align-items: end;
+  }
+  .btn {
+    display: flex; align-items: center; justify-content: center;
+    background: #182430; border: 1px solid #2b3d4f; border-radius: 16px;
+    font-size: 20px; font-weight: 600; color: #cfe3f5;
+    box-shadow: 0 2px 0 #0a1016, inset 0 1px 0 #223143;
+    transition: background .05s, transform .05s;
+    touch-action: none;
+  }
+  .btn.active { background: #2f6f9f; border-color: #57a8dd; color: #fff; transform: translateY(1px); box-shadow: none; }
+  .btn.small { font-size: 13px; border-radius: 12px; }
+  .btn.round { border-radius: 50%; font-size: 26px; }
+  #b-up    { grid-area: 1 / 2; }
+  #b-left  { grid-area: 2 / 1; }
+  #b-right { grid-area: 2 / 3; }
+  #b-down  { grid-area: 3 / 2; }
+  #b-a  { grid-column: 2; grid-row: 2; width: 74px; height: 74px; margin-left: 2px; }
+  #b-b  { grid-column: 1; grid-row: 2; width: 74px; height: 74px; }
+  #b-start { grid-column: 1 / span 2; grid-row: 1; height: 40px; justify-self: end; width: 96px; }
+  #b-select { grid-column: 1 / span 2; grid-row: 1; height: 40px; justify-self: start; width: 96px; }
+  #hint {
+    position: fixed; left: 0; right: 0; bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    text-align: center; font-size: 11px; color: #4c6076; pointer-events: none;
+  }
+  @media (orientation: landscape) {
+    #dpad { grid-template-columns: repeat(3, 74px); grid-template-rows: repeat(3, 74px); }
+    #buttons { grid-template-columns: 74px 74px; grid-template-rows: 74px 74px; }
+    #b-a, #b-b { width: 84px; height: 84px; }
+  }
+</style>
+</head>
+<body>
+<div id="hud">MiniMario 手机手柄 · <b id="state">连接中…</b></div>
+
+<div id="dpad" class="pad">
+  <div class="btn" id="b-up"    data-btn="up">▲</div>
+  <div class="btn" id="b-left"  data-btn="left">◀</div>
+  <div class="btn" id="b-right" data-btn="right">▶</div>
+  <div class="btn" id="b-down"  data-btn="down">▼</div>
+</div>
+
+<div id="buttons" class="pad">
+  <div class="btn small" id="b-select" data-btn="select">SELECT</div>
+  <div class="btn small" id="b-start"  data-btn="start">START</div>
+  <div class="btn round" id="b-b" data-btn="b">B</div>
+  <div class="btn round" id="b-a" data-btn="a">A</div>
+</div>
+
+<div id="hint">连不上时：确认手机已连接 Wi-Fi「MiniMario」。按 START+SELECT 可退出游戏。</div>
+
+<script>
+(function () {
+  var BITS = { a: 1, b: 2, select: 4, start: 8, up: 16, down: 32, left: 64, right: 128 };
+  var held = new Map();          /* pointerId -> bit */
+  var ws = null, wsReady = false, reconnectTimer = null;
+  var stateEl = document.getElementById('state');
+  var lastSent = -1, lastSendAt = 0;
+
+  function mask() {
+    var m = 0;
+    held.forEach(function (bit) { m |= bit; });
+    return m;
+  }
+  function send(force) {
+    var m = mask();
+    var now = Date.now();
+    if (!wsReady) return;
+    if (!force && m === lastSent && now - lastSendAt < 250) return;
+    lastSent = m; lastSendAt = now;
+    ws.send(m.toString(16).padStart(2, '0'));
+  }
+  function setState(text, warn) {
+    stateEl.textContent = text;
+    stateEl.className = warn ? 'warn' : '';
+  }
+  function connect() {
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+    var url = 'ws://' + location.host + '/ws';
+    setState('连接中…', true);
+    try { ws = new WebSocket(url); } catch (e) { setState('WebSocket 不可用', true); return; }
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = function () {
+      wsReady = true; lastSent = -1;
+      setState('已连接 ✓');
+      send(true);
+      if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = setInterval(connect, 3000); }
+    };
+    ws.onclose = function () {
+      wsReady = false; lastSent = -1;
+      setState('已断开，重连中…', true);
+      sendForceZero();
+    };
+    ws.onerror = function () { wsReady = false; setState('连接错误，重试中…', true); };
+  }
+  function sendForceZero() {
+    /* Release everything so no key stays stuck after a disconnect. */
+    held.clear();
+    document.querySelectorAll('.btn.active').forEach(function (el) { el.classList.remove('active'); });
+  }
+  reconnectTimer = setInterval(connect, 3000);
+  connect();
+
+  /* Keepalive: the firmware releases all keys if it stops hearing from us. */
+  setInterval(function () { send(true); }, 100);
+
+  function attach(el) {
+    var bit = BITS[el.dataset.btn];
+    if (!bit) return;
+    el.addEventListener('pointerdown', function (ev) {
+      ev.preventDefault();
+      if (el.setPointerCapture) { try { el.setPointerCapture(ev.pointerId); } catch (e) {} }
+      held.set(ev.pointerId, bit);
+      el.classList.add('active');
+      send(true);
+    });
+    function release(ev) {
+      if (!held.has(ev.pointerId)) return;
+      held.delete(ev.pointerId);
+      el.classList.remove('active');
+      send(true);
+    }
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('lostpointercapture', release);
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  }
+  document.querySelectorAll('[data-btn]').forEach(attach);
+
+  /* Prevent iOS double-tap zoom / rubber-band scrolling on the pad. */
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+})();
+</script>
+</body>
+</html>

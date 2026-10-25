@@ -74,10 +74,16 @@ _Static_assert(DPAD_RIGHT == GP_DPAD_RIGHT, "Bluepad32 DPAD_RIGHT changed");
 
 /* ---- State ------------------------------------------------------------- */
 
+typedef enum {
+    SLOT_KIND_NONE = 0,
+    SLOT_KIND_GAMEPAD,
+    SLOT_KIND_KEYBOARD,
+} slot_kind_t;
+
 typedef struct {
     bool connected;
-    bool gamepad;       /* class reported as UNI_CONTROLLER_CLASS_GAMEPAD */
-    uint8_t buttons;    /* last NES_PAD_* mask */
+    uint8_t kind;       /* slot_kind_t */
+    uint8_t buttons;    /* last NES_PAD_* mask (gamepad or keyboard) */
     char name[32];
     uint16_t vendor_id;
     uint16_t product_id;
@@ -104,7 +110,7 @@ static uint8_t slot_mask_unlocked(void)
 {
     uint8_t mask = 0;
     for (int i = 0; i < GP_SLOTS; i++) {
-        if (s_slots[i].connected && s_slots[i].gamepad)
+        if (s_slots[i].connected)
             mask |= s_slots[i].buttons;
     }
     return mask;
@@ -197,10 +203,10 @@ static uni_error_t platform_on_device_discovered(bd_addr_t addr, const char *nam
     (void)addr;
     (void)rssi;
 
-    /* Keep the two device slots for gamepads: ignore keyboards/mice.
-     * (Bluepad32 already filters everything that is not HID.) */
-    if (cod != 0 && (cod & UNI_BT_COD_MINOR_MASK & (UNI_BT_COD_MINOR_KEYBOARD | UNI_BT_COD_MINOR_MICE))) {
-        ESP_LOGI(TAG, "ignoring keyboard/mouse: %s", name ? name : "?");
+    /* Mice are useless for a NES pad; keyboards are kept because a phone
+     * running a "BLE HID keyboard" app can drive the emulator with one. */
+    if (cod != 0 && (cod & UNI_BT_COD_MINOR_MASK & UNI_BT_COD_MINOR_MICE)) {
+        ESP_LOGI(TAG, "ignoring mouse: %s", name ? name : "?");
         return UNI_ERROR_IGNORE_DEVICE;
     }
 
@@ -252,6 +258,7 @@ static uni_error_t platform_on_device_ready(uni_hid_device_t *d)
     portENTER_CRITICAL(&s_lock);
     slot_state_t *st = &s_slots[slot];
     st->connected = true;
+    st->kind = SLOT_KIND_NONE;
     st->buttons = 0;
     strncpy(st->name, name, sizeof(st->name) - 1);
     st->name[sizeof(st->name) - 1] = '\0';
@@ -288,11 +295,24 @@ static void platform_on_controller_data(uni_hid_device_t *d, uni_controller_t *c
     if (slot < 0 || slot >= GP_SLOTS)
         return;
 
-    if (ctl->klass != UNI_CONTROLLER_CLASS_GAMEPAD) {
-        /* Mice/keyboards are not gamepads: do not merge them into the mask. */
+    uint8_t mask = 0;
+    uint8_t kind = SLOT_KIND_NONE;
+
+    if (ctl->klass == UNI_CONTROLLER_CLASS_GAMEPAD) {
+        mask = map_gamepad(&ctl->gamepad);
+        kind = SLOT_KIND_GAMEPAD;
+    } else if (ctl->klass == UNI_CONTROLLER_CLASS_KEYBOARD) {
+        /* BLE HID keyboards: lets a phone running a "BLE HID keyboard" app (or
+         * any Bluetooth keyboard) drive the emulator.  See gamepad_map.c for
+         * the key mapping. */
+        mask = gamepad_map_keyboard(ctl->keyboard.modifiers, ctl->keyboard.pressed_keys,
+                                    UNI_KEYBOARD_PRESSED_KEYS_MAX);
+        kind = SLOT_KIND_KEYBOARD;
+    } else {
+        /* Mice / balance boards: not used. */
         portENTER_CRITICAL(&s_lock);
-        if (s_slots[slot].gamepad) {
-            s_slots[slot].gamepad = false;
+        if (s_slots[slot].kind != SLOT_KIND_NONE) {
+            s_slots[slot].kind = SLOT_KIND_NONE;
             s_slots[slot].buttons = 0;
             s_ble_mask = slot_mask_unlocked();
         }
@@ -300,13 +320,12 @@ static void platform_on_controller_data(uni_hid_device_t *d, uni_controller_t *c
         return;
     }
 
-    uint8_t mask = map_gamepad(&ctl->gamepad);
     int8_t battery = battery_to_percent(ctl->battery);
 
     portENTER_CRITICAL(&s_lock);
     slot_state_t *st = &s_slots[slot];
     st->connected = true;
-    st->gamepad = true;
+    st->kind = kind;
     st->buttons = mask;
     st->battery = battery;
     s_ble_mask = slot_mask_unlocked();
@@ -441,7 +460,7 @@ int gamepad_count(void)
     int count = 0;
     portENTER_CRITICAL(&s_lock);
     for (int i = 0; i < GP_SLOTS; i++) {
-        if (s_slots[i].connected && s_slots[i].gamepad)
+        if (s_slots[i].connected)
             count++;
     }
     portEXIT_CRITICAL(&s_lock);

@@ -41,3 +41,7 @@ void app_set_bgr(int enable);     /* 0|1 colour order fallback */
 int app_get_rotation(void);
 int app_get_scale(void);
 int app_get_bgr(void);
+
+/* Phone controller over Wi-Fi (SoftAP + web page).  Persisted in NVS. */
+void app_set_wpad(int enable);    /* 0|1 */
+int app_get_wpad(void);

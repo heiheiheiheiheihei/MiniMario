@@ -6,6 +6,8 @@
  */
 #include "gamepad_map.h"
 
+#include <stddef.h>
+
 #include "gamepad_map_bits.h"
 #include "pad.h"
 
@@ -51,5 +53,81 @@ uint8_t gamepad_map_raw(uint16_t buttons, uint8_t misc_buttons, uint8_t dpad, in
     if (axis_x >= GAMEPAD_STICK_DEADZONE)
         mask |= PAD_RIGHT;
 
+    return mask;
+}
+
+/* USB HID keyboard usage IDs (HID usage page 0x07), as delivered by Bluepad32
+ * in uni_keyboard_t.pressed_keys. */
+#define KB_UP        0x52
+#define KB_DOWN      0x51
+#define KB_LEFT      0x50
+#define KB_RIGHT     0x4F
+#define KB_W         0x1A
+#define KB_A_KEY     0x04
+#define KB_S         0x16
+#define KB_D         0x07
+#define KB_Z         0x1D
+#define KB_X         0x1B
+#define KB_J         0x0D
+#define KB_K         0x0E
+#define KB_SPACE     0x2C
+#define KB_ENTER     0x28
+#define KB_BACKSPACE 0x2A
+#define KB_ESCAPE    0x29
+
+/* Map a BLE HID keyboard report to a NES_PAD_* mask, so a phone running a
+ * "BLE HID keyboard" app (or a real BT keyboard) can drive the emulator:
+ *
+ *   arrows / WASD        d-pad
+ *   Z / J / Space        A
+ *   X / K                B
+ *   Enter                Start
+ *   Backspace / Escape   Select
+ */
+uint8_t gamepad_map_keyboard(uint8_t modifiers, const uint8_t *keys, int count)
+{
+    (void)modifiers;
+    uint8_t mask = 0;
+    if (keys == NULL)
+        return 0;
+
+    for (int i = 0; i < count; i++) {
+        switch (keys[i]) {
+        case KB_UP:
+        case KB_W:
+            mask |= PAD_UP;
+            break;
+        case KB_DOWN:
+        case KB_S:
+            mask |= PAD_DOWN;
+            break;
+        case KB_LEFT:
+        case KB_A_KEY:
+            mask |= PAD_LEFT;
+            break;
+        case KB_RIGHT:
+        case KB_D:
+            mask |= PAD_RIGHT;
+            break;
+        case KB_Z:
+        case KB_J:
+        case KB_SPACE:
+            mask |= PAD_A;
+            break;
+        case KB_X:
+        case KB_K:
+            mask |= PAD_B;
+            break;
+        case KB_ENTER:
+            mask |= PAD_START;
+            break;
+        case KB_BACKSPACE:
+        case KB_ESCAPE:
+            mask |= PAD_SELECT;
+            break;
+        default:
+            break;
+        }
+    }
     return mask;
 }

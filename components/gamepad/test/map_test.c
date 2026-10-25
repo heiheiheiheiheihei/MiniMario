@@ -61,6 +61,11 @@ static uint8_t map(uint16_t buttons, uint8_t misc, uint8_t dpad, int32_t x, int3
     return gamepad_map_raw(buttons, misc, dpad, x, y);
 }
 
+static uint8_t kb(const uint8_t *keys, int count)
+{
+    return gamepad_map_keyboard(0, keys, count);
+}
+
 int main(void)
 {
     /* No input -> no NES buttons. */
@@ -114,6 +119,31 @@ int main(void)
      * in the same 16-bit field still map to A/B. */
     CHECK_EQ(map(BP_BUTTON_THUMB_L | BP_BUTTON_THUMB_R, 0, 0, 0, 0), 0);
     CHECK_EQ(map(0xffc0, 0, 0, 0, 0), PAD_A | PAD_B);
+
+
+    /* BLE HID keyboard mapping (phone running a "BLE HID keyboard" app). */
+    {
+        uint8_t k_up[] = {0x52};
+        uint8_t k_left[] = {0x50};
+        uint8_t k_z[] = {0x1D};
+        uint8_t k_x[] = {0x1B};
+        uint8_t k_enter[] = {0x28};
+        uint8_t k_backspace[] = {0x2A};
+        uint8_t k_shift[] = {0x64, 0x65, 0x66}; /* non-US usages, unmapped */
+        uint8_t k_run_jump[] = {0x4F, 0x1D};    /* right + Z */
+        uint8_t k_wasd_ws[] = {0x1A, 0x16};     /* W + S cancel out */
+
+        CHECK_EQ(kb(k_up, 1), PAD_UP);
+        CHECK_EQ(kb(k_left, 1), PAD_LEFT);
+        CHECK_EQ(kb(k_z, 1), PAD_A);
+        CHECK_EQ(kb(k_x, 1), PAD_B);
+        CHECK_EQ(kb(k_enter, 1), PAD_START);
+        CHECK_EQ(kb(k_backspace, 1), PAD_SELECT);
+        CHECK_EQ(kb(k_run_jump, 2), PAD_RIGHT | PAD_A);
+        CHECK_EQ(kb(k_wasd_ws, 2), PAD_UP | PAD_DOWN);
+        CHECK_EQ(kb(k_shift, 3), 0);
+        CHECK_EQ(kb(NULL, 0), 0);
+    }
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

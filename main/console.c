@@ -37,6 +37,7 @@
 #include "console.h"
 #include "rom_store.h"
 #include "ui_menu.h"
+#include "phone_pad.h"
 
 static const char *TAG = "console";
 
@@ -136,6 +137,8 @@ static void cmd_help(void)
     out("  scale <0-2>              0=FIT 1=FILL 2=PIXEL\n");
     out("  bl <0-100>               backlight percentage\n");
     out("  bgr <0|1>                colour order fallback (persisted)\n");
+    out("  wpad on|off|status|test  phone controller over Wi-Fi: board starts the\n");
+    out("                           'MiniMario' AP, phone opens http://192.168.4.1/\n");
     out("  test                     show the display test pattern (4 s)\n");
     out("  clear                    clear the screen\n");
     out("  shot                     dump frame/canvas (indexed + palette)\n");
@@ -549,6 +552,24 @@ static void handle_line(char *line)
         } else {
             app_set_backlight(v);
             out("OK bl=%d\n", display_get_backlight());
+        }
+    } else if (!strcmp(cmd, "wpad")) {
+        if (!strcmp(arg, "test")) {
+            char rep[200];
+            esp_err_t e = phone_pad_selftest(rep, sizeof(rep));
+            out("%s wpad selftest: %s\n", e == ESP_OK ? "OK" : "ERR", rep);
+        } else if (!strcmp(arg, "on") || !strcmp(arg, "1")) {
+            app_set_wpad(1);
+            char st[160];
+            phone_pad_status(st, sizeof(st));
+            out("OK %s\n", st);
+        } else if (!strcmp(arg, "off") || !strcmp(arg, "0")) {
+            app_set_wpad(0);
+            out("OK wpad=off\n");
+        } else {
+            char st[160];
+            phone_pad_status(st, sizeof(st));
+            out("INFO %s\n", st);
         }
     } else if (!strcmp(cmd, "bgr")) {
         int v = atoi(arg);

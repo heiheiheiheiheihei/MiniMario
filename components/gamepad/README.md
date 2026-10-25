@@ -235,3 +235,22 @@ at build time.
 * Bluepad32 v4.2.0 <https://github.com/ricardoquesada/bluepad32> (Apache-2.0)
 * BTstack <https://github.com/bluekitchen/btstack> (see its LICENSE)
 * Bluepad32 ESP32 integration notes: `docs/plat_esp32.md` upstream
+
+## BLE HID keyboard support (phone as a controller, Android)
+
+`gamepad.c` also accepts `UNI_CONTROLLER_CLASS_KEYBOARD` devices.  This lets an
+Android phone running a "BLE HID keyboard" app (the phone advertises itself as a
+Bluetooth keyboard) drive the NES -- no custom app needed on the board side.
+
+| Key | NES |
+|-----|-----|
+| Arrow keys / W A S D | d-pad |
+| Z / J / Space | A |
+| X / K | B |
+| Enter | Start |
+| Backspace / Esc | Select |
+
+The mapping lives in `gamepad_map.c:gamepad_map_keyboard()` and is covered by
+the host test (`test/run_host_test.sh`, 44 checks).  Keyboards and gamepads can
+be connected at the same time; their masks are OR-ed together.  iOS cannot act
+as a Bluetooth HID peripheral for third-party apps, so this path is Android-only.
