@@ -386,12 +386,12 @@ static void draw_footer(const layout_t *L)
     if (L->footer_lines >= 3) {
         text(4, y, "A play  B rescan", UI_CYAN, UI_BLACK, 1);
         text(4, y + 10, "BOOT tap=next hold=play", UI_YELLOW, UI_BLACK, 1);
-        text(4, y + 20, "SEL+STA quit | serial: help", UI_CYAN, UI_BLACK, 1);
+        text(4, y + 20, "x2 colour test | SEL+STA quit", UI_CYAN, UI_BLACK, 1);
         return;
     }
     display_ui_rect(0, y - 3, L->w, 1, UI_DGRAY);
     text(4, y, "A/START play   B rescan   SEL+STA quit", UI_CYAN, UI_BLACK, 1);
-    text(4, y + 10, "BOOT tap=next hold=play | serial: help", UI_YELLOW, UI_BLACK, 1);
+    text(4, y + 10, "BOOT tap=next hold=play x2=colour", UI_YELLOW, UI_BLACK, 1);
 }
 
 /* ------------------------------------------------------------------ */

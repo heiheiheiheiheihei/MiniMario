@@ -197,10 +197,10 @@ boot tap|hold|double      模拟 BOOT 按键短按/长按/双击（测试）
 rot <0-3>                 屏幕方向（0/2 竖屏，1/3 横屏），存 NVS
 scale <0-2>               0=FIT 1=FILL 2=PIXEL
 bl <0-100>                背光
-bgr <0|1>                 颜色顺序兜底（红蓝反了就用它）
+bgr <0|1>                 颜色顺序 RGB/BGR（默认 1=BGR；也可双击 BOOT 进校准图）
 wpad on|off|status|test   手机 Wi-Fi 手柄开关 / 状态 / 自检
 wpad press <hex> [ms]     模拟手机按键（如 01=A、0c=Start+Select），自动化测试用
-test                      显示校准测试图（判断方向/镜像/颜色）
+test                      显示颜色校准图（也可在菜单双击 BOOT）
 shot                      截图（二进制帧 + 调色板）
 shotui                    导出 UI 画布（游戏运行时含两侧状态栏）
 ping | reboot
@@ -217,10 +217,22 @@ python tools/serial.py -s "key right+a"        # 注入按键
 
 ### 屏幕方向 / 颜色不对怎么办
 
-1. 串口执行 `test`，屏幕会显示校准图（四个角分别写着 TOP-LEFT / TOP-RIGHT / BOTTOM-LEFT / BOTTOM-RIGHT）。
-2. 图不是正的：`rot 0` / `rot 1` / `rot 2` / `rot 3` 换到正确方向（会存 NVS，重启保留）。
-3. 红蓝反了：`bgr 1`。
-4. 画面位置/宽度不对：`scale 0/1/2`。
+**不用电脑、只有 BOOT 键也能校准颜色：**
+
+1. 菜单里**双击 BOOT**（两下间隔 < 0.4 秒）→ 屏幕出现颜色校准图：
+   左上红（RED）、右上绿（GREEN）、左下蓝（BLUE）、右下白（WHITE）。
+2. **短按 BOOT** 切换 RGB ⇄ BGR 颜色顺序，每按一次图案重画一次，直到四个角的颜色和文字一致。
+3. **长按 BOOT** 退出，设置会存进 NVS，重启/换 ROM 都保留。
+
+有串口时也可以用命令：
+
+- `test` 显示校准图，`bgr 0|1` 切换颜色顺序（默认 1 = BGR，这块屏是 BGR 排线）。
+- 图不是正的：`rot 0` / `rot 1` / `rot 2` / `rot 3`（存 NVS）。
+- 画面位置/宽度不对：`scale 0/1/2`。
+
+> 说明：RGB565 是 16 位，ST7789 要求**高字节先发**；旧固件把 uint16 数组直接丢给 SPI
+> （小端 = 低字节先发），所以屏幕上所有颜色都被换了字节（青→黄、绿→红……）。
+> 现在驱动会在送屏前做字节交换，截图和屏幕颜色一致。
 
 ## 7. 固件文件（firmware/）
 
@@ -316,6 +328,6 @@ docs/                   文档与截图
 [+] START+SELECT 回菜单
 [+] 串口 info 显示 fps≈60、heap、rot/scale
 [+] shot 截图 PNG 正常
-[+] test 校准图方向/颜色正确（不正确就用 rot/bgr 调）
+[+] test 校准图四个角 RED/GREEN/BLUE/WHITE 正确（不对就双击 BOOT 进校准图按一下切换）
 [+] BLE 手柄（Xbox fw5.x+）能扫描连接
 ```

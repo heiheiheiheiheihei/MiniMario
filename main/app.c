@@ -73,26 +73,44 @@ static int s_scale = DISPLAY_SCALE_FIT;
 static int s_bl = 80;
 static int s_wpad;      /* phone controller over Wi-Fi */
 static int s_wpad_wpa2; /* phone pad: 1 = WPA2-PSK, 0 = open network */
-static int s_bgr = 0;
+/* The 1.47" panel is wired BGR (Waveshare's own reference config uses
+ * TFT_RGB_ORDER=TFT_BGR), so the ST7789 colour-order bit must be set by
+ * default: with it cleared red and blue come out swapped. */
+static int s_bgr = 1;
 
 static int64_t s_hold_ui_until; /* `test` keeps the test pattern on screen */
+static int64_t s_colour_test_until; /* BOOT double tap: colour calibration view */
+static int64_t s_colour_test_last_tap;
 static int64_t s_menu_ignore_pad_until; /* ignore held buttons right after quitting a game */
 
 /* ------------------------------------------------------------------ */
 /* NVS settings                                                        */
 /* ------------------------------------------------------------------ */
 
+#define SETTINGS_VERSION 2
+
 static void settings_load(void)
 {
     nvs_handle_t h;
     int8_t v;
-    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
         if (nvs_get_i8(h, "rot", &v) == ESP_OK && v >= 0 && v <= 3) s_rot = v;
         if (nvs_get_i8(h, "scale", &v) == ESP_OK && v >= 0 && v <= 2) s_scale = v;
         if (nvs_get_i8(h, "bl", &v) == ESP_OK && v >= 0 && v <= 100) s_bl = v;
         if (nvs_get_i8(h, "bgr", &v) == ESP_OK && v >= 0 && v <= 1) s_bgr = v;
         if (nvs_get_i8(h, "wpad", &v) == ESP_OK && (v == 0 || v == 1)) s_wpad = v;
         if (nvs_get_i8(h, "wpauth", &v) == ESP_OK && (v == 0 || v == 1)) s_wpad_wpa2 = v;
+
+        /* Version 1 firmware stored bgr=0, which produced swapped red/blue on
+         * this board; migrate existing NVS contents to the new default. */
+        int8_t ver = 0;
+        if (nvs_get_i8(h, "cfgver", &ver) != ESP_OK || ver < SETTINGS_VERSION) {
+            s_bgr = 1;
+            nvs_set_i8(h, "bgr", 1);
+            nvs_set_i8(h, "cfgver", SETTINGS_VERSION);
+            nvs_commit(h);
+            ESP_LOGI(TAG, "settings migration: colour order -> BGR");
+        }
         nvs_close(h);
     }
     ESP_LOGI(TAG, "settings: rot=%d scale=%d bl=%d%% bgr=%d wpad=%d wpauth=%s", s_rot, s_scale,
@@ -715,9 +733,34 @@ static void menu_loop(void)
         int64_t now = esp_timer_get_time();
         uint8_t pad = gamepad_read() | phone_pad_read();
 
-        /* BOOT button: tap = next ROM, hold = play. */
+        /* BOOT button: tap = next ROM, hold = play, double tap = colour test. */
         boot_evt_t bev = boot_poll();
+        if (now < s_colour_test_until) {
+            /* Colour calibration: tap swaps RGB/BGR (persisted), hold leaves.
+             * This is the only way to fix the colour order without a serial
+             * console, which matters on a board with a single button. */
+            if (bev == BOOT_EVT_SHORT) {
+                app_set_bgr(!app_get_bgr());
+                display_test_pattern();
+                s_colour_test_until = now + 60 * 1000 * 1000;
+                ESP_LOGI(TAG, "colour test: bgr=%d (tap=swap, hold=exit)", app_get_bgr());
+            } else if (bev == BOOT_EVT_LONG) {
+                s_colour_test_until = 0;
+                ui_menu_refresh();
+                ESP_LOGI(TAG, "colour test: exit (bgr=%d)", app_get_bgr());
+            }
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
         if (bev == BOOT_EVT_SHORT) {
+            if (s_colour_test_last_tap && now - s_colour_test_last_tap < BOOT_DOUBLE_US) {
+                s_colour_test_last_tap = 0;
+                display_test_pattern();
+                s_colour_test_until = now + 60 * 1000 * 1000;
+                ESP_LOGI(TAG, "colour test: on (bgr=%d, tap=swap, hold=exit)", app_get_bgr());
+                continue;
+            }
+            s_colour_test_last_tap = now;
             ui_menu_move(1);
         } else if (bev == BOOT_EVT_LONG) {
             if (app_request_play(-1)) continue;

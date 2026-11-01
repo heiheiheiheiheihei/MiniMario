@@ -99,7 +99,15 @@ static bool s_bgr = false;
 static int s_spi_mhz = LCD_SPI_FREQ_MHZ;
 
 /* ---- UI state ---- */
+/* The ST7789 expects each RGB565 pixel high byte first, but a uint16_t array in
+ * ESP-IDF SPI is sent in memory order (little endian), which swaps the bytes and
+ * makes every colour wrong (cyan shows up as yellow, green as pink, ...).  The
+ * palettes below keep the logical R,G,B layout for screenshots/host tools and a
+ * wire-swapped copy that is what actually gets converted and sent. */
+static inline uint16_t wire_color(uint16_t c) { return (uint16_t)((c >> 8) | (c << 8)); }
+
 static uint16_t s_pal_ui[16];
+static uint16_t s_pal_ui_wire[16];
 static uint8_t s_canvas_mem[DISPLAY_W * DISPLAY_H] __attribute__((aligned(4)));
 static uint8_t *s_canvas;          /* 8bpp, 320*172 bytes (or 172*320 when portrait) */
 static int s_canvas_w = DISPLAY_W; /* logical dims of the canvas for current rotation */
@@ -462,6 +470,9 @@ typedef struct {
     const uint16_t *pal;
 } nes_frame_t;
 
+#define NES_WIRE_PALETTE_SIZE 256 /* display_show_nes_frame() contract */
+static uint16_t s_pal_nes_wire[NES_WIRE_PALETTE_SIZE];
+
 static void conv_nes_band(void *ctx, int v, int rows, uint16_t *dst)
 {
     const nes_frame_t *f = (const nes_frame_t *)ctx;
@@ -524,19 +535,19 @@ static void conv_ui_band(void *ctx, int v, int rows, uint16_t *dst)
             int v0 = v + r, v1 = v0 + 1;
             int lx0 = rot90 ? (PANEL_H - 1 - v0) : v0;
             int lx1 = rot90 ? (PANEL_H - 1 - v1) : v1;
-            conv_2rows(s_canvas + lx0, s_canvas + lx1, s_pal_ui, s_ui_off,
+            conv_2rows(s_canvas + lx0, s_canvas + lx1, s_pal_ui_wire, s_ui_off,
                        dst + (size_t)r * w, dst + (size_t)(r + 1) * w, w);
         }
         if (r < rows) {
             int lx = rot90 ? (PANEL_H - 1 - (v + r)) : (v + r);
-            conv_1row(s_canvas + lx, s_pal_ui, s_ui_off, dst + (size_t)r * w, w);
+            conv_1row(s_canvas + lx, s_pal_ui_wire, s_ui_off, dst + (size_t)r * w, w);
         }
     } else {
         const bool rot0 = (s_rot == DISPLAY_ROT_0);
         for (int r = 0; r < rows; r++) {
             int ly = rot0 ? (v + r) : (PANEL_H - 1 - (v + r));
             const uint8_t *row = s_canvas + (size_t)ly * s_canvas_w;
-            conv_1row_direct(row, s_pal_ui, s_ui_col, dst + (size_t)r * w, w);
+            conv_1row_direct(row, s_pal_ui_wire, s_ui_col, dst + (size_t)r * w, w);
         }
     }
 }
@@ -602,7 +613,10 @@ void display_show_nes_frame(const uint8_t *indexed, const uint16_t *palette565)
 
     xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
     uint32_t t0 = (uint32_t)esp_timer_get_time();
-    nes_frame_t frame = {.indexed = indexed, .pal = palette565};
+    for (int i = 0; i < NES_WIRE_PALETTE_SIZE; i++) {
+        s_pal_nes_wire[i] = wire_color(palette565[i]);
+    }
+    nes_frame_t frame = {.indexed = indexed, .pal = s_pal_nes_wire};
     uint32_t conv_us = stream_frame(s_band_v0, s_band_v1 - s_band_v0,
                                     conv_nes_band, &frame);
     uint32_t total = (uint32_t)esp_timer_get_time() - t0;
@@ -769,6 +783,7 @@ void display_fill(uint16_t color)
 {
     if (!s_inited) return;
     xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+    color = wire_color(color);
     for (int i = 0; i < CHUNK_PIXELS; i++) s_chunk[i] = color;
     for (int y = 0; y < PANEL_H; y += CHUNK_ROWS) {
         int rows = PANEL_H - y;
@@ -791,7 +806,8 @@ void display_blit(int x, int y, int w, int h, const uint16_t *pixels)
         int rows = h - r;
         if (rows > rows_per_chunk) rows = rows_per_chunk;
         size_t bytes = (size_t)w * rows * 2;
-        memcpy(s_chunk, pixels + (size_t)r * w, bytes);
+        const uint16_t *src = pixels + (size_t)r * w;
+        for (size_t i = 0; i < (size_t)w * rows; i++) s_chunk[i] = wire_color(src[i]);
         panel_write_rect(x, y + r, w, rows, s_chunk, bytes);
     }
     xSemaphoreGiveRecursive(s_lock);
@@ -991,6 +1007,7 @@ esp_err_t display_init(void)
         0x0010, /* navy */
     };
     memcpy(s_pal_ui, ui_pal, sizeof(ui_pal));
+    for (int i = 0; i < 16; i++) s_pal_ui_wire[i] = wire_color(ui_pal[i]);
 
     rebuild_maps();
     s_inited = true;
@@ -1032,12 +1049,15 @@ static void draw_calibration_landscape(void)
     display_ui_rect(160, 90, 160, 70, UI_WHITE);
 
     display_ui_text(4, 4, "TOP-LEFT", UI_WHITE, UI_RED, 2);
+    display_ui_text(4, 22, "RED", UI_WHITE, UI_RED, 2);
     display_ui_text(DISPLAY_W - 4 - display_ui_text_width("TOP-RIGHT", 2), 4,
                     "TOP-RIGHT", UI_BLACK, UI_GREEN, 2);
-    display_ui_text(4, 96, "BOTTOM", UI_WHITE, UI_BLUE, 2);
-    display_ui_text(4, 120, "LEFT", UI_WHITE, UI_BLUE, 2);
-    display_ui_text(164, 96, "BOTTOM", UI_BLACK, UI_WHITE, 2);
-    display_ui_text(164, 120, "RIGHT", UI_BLACK, UI_WHITE, 2);
+    display_ui_text(DISPLAY_W - 4 - display_ui_text_width("GREEN", 2), 22,
+                    "GREEN", UI_BLACK, UI_GREEN, 2);
+    display_ui_text(4, 96, "BLUE", UI_WHITE, UI_BLUE, 2);
+    display_ui_text(4, 120, "BOTTOM-LEFT", UI_WHITE, UI_BLUE, 1);
+    display_ui_text(164, 96, "WHITE", UI_BLACK, UI_WHITE, 2);
+    display_ui_text(164, 120, "BOTTOM-RIGHT", UI_BLACK, UI_WHITE, 1);
 
     /* title */
     display_ui_rect(86, 52, 148, 20, UI_BLACK);
@@ -1050,6 +1070,10 @@ static void draw_calibration_landscape(void)
     }
     /* greyscale gradient */
     display_ui_shade(0, 160, DISPLAY_W, 12, true);
+
+    /* on-screen hint: BOOT tap toggles RGB/BGR, hold exits */
+    display_ui_rect(0, 134, DISPLAY_W, 12, UI_BLACK);
+    display_ui_text(4, 136, "BOOT: tap=RGB/BGR  hold=back", UI_YELLOW, UI_BLACK, 1);
 }
 
 static void draw_calibration_portrait(void)

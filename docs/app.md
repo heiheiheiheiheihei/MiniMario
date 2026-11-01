@@ -184,7 +184,7 @@ the emulator.
 | `roms` shows 0 ROMs | flash the container: `python3 tools/flash_rom.py` |
 | `ERR load: ROM too large …` | TF-card ROM > 256 KB; flash it instead |
 | `ERR load: out of memory` | close other features / use the embedded (mmap) copy |
-| `bgr` colours | `bgr 1` swaps red/blue (persisted); the display might need this if the panel is wired BGR |
+| `bgr` colours | `bgr 1` (default) selects the panel BGR colour order; `bgr 0` for RGB. Also reachable from the menu with a BOOT double tap (tap = swap, hold = exit). |
 | menu in portrait after `rot 0` | the menu is designed for landscape; use `rot 1` or `rot 3` |
 | board stuck in "waiting for download" | `flock /tmp/mm_flash.lock python -m esptool --chip esp32c6 -p /dev/ttyACM0 --before default_reset --after hard_reset chip_id` |
 
