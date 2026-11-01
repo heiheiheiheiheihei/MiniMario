@@ -320,11 +320,15 @@ docs/                   文档与截图
 
 ## 12. 许可与版权
 
-- nofrendo：GPLv2（© 1998-2000 Matthew Conte 等）
-- 本项目其余代码：GPLv3（与 nofrendo 兼容）
-- Bluepad32：见 `third_party/bluepad32/LICENSE`
-- 内置游戏版权见第 3 节；**不包含任何任天堂版权 ROM**
-- "Nintendo"、"Super Mario Bros." 等为任天堂商标；本项目仅为个人硬件 DIY 用途
+- **本项目（MiniMario 其余代码）**：GPLv2 —— 见仓库根目录 `LICENSE`
+- **nofrendo**（NES 内核）：LGPL v2.0（© 1998-2000 Matthew Conte 等），见
+  `components/nofrendo/` 各文件头部
+- **Bluepad32**：Apache-2.0，见 `third_party/bluepad32/LICENSE`
+  （其依赖的 BlueKitchen BTstack 对开源项目免费、商业使用需授权）
+- **内置游戏**：Twin Dragons（zlib / CC-BY 3.0）、Nova the Squirrel（GPLv3 /
+  CC-BY-NC-SA 4.0），版权归各自作者，见第 3 节
+- **不包含任何任天堂版权 ROM**；"Nintendo"、"Super Mario Bros." 等为任天堂商标，
+  本项目仅为个人硬件 DIY 用途
 
 ## 13. 快速检查清单
 
