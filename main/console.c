@@ -41,7 +41,7 @@
 
 static const char *TAG = "console";
 
-#define CONSOLE_TASK_STACK 4096
+#define CONSOLE_TASK_STACK 6144
 #define CONSOLE_TASK_PRIO 3
 #define CONSOLE_LINE_MAX 160
 
@@ -137,6 +137,7 @@ static void cmd_help(void)
     out("  scale <0-2>              0=FIT 1=FILL 2=PIXEL\n");
     out("  bl <0-100>               backlight percentage\n");
     out("  bgr <0|1>                colour order fallback (persisted)\n");
+    out("  boot tap|hold|double     simulate a BOOT-button event (testing)\n");
     out("  wpad on|off|status|test  phone controller over Wi-Fi: board starts the\n");
     out("  wpad auth open|wpa2      AP security (default: open, no password)\n");
     out("  wpad press <hex> [ms]    simulate phone holding buttons (e.g. 01=A)\n");
@@ -557,6 +558,20 @@ static void handle_line(char *line)
         } else {
             app_set_backlight(v);
             out("OK bl=%d\n", display_get_backlight());
+        }
+    } else if (!strcmp(cmd, "boot")) {
+        if (!strcmp(arg, "tap") || !strcmp(arg, "short")) {
+            app_boot_simulate(1);
+            out("OK boot tap injected\n");
+        } else if (!strcmp(arg, "hold") || !strcmp(arg, "long")) {
+            app_boot_simulate(2);
+            out("OK boot hold injected\n");
+        } else if (!strcmp(arg, "double") || !strcmp(arg, "dbl")) {
+            app_boot_simulate(1);
+            app_boot_simulate(1);
+            out("OK boot double tap injected\n");
+        } else {
+            out("ERR usage: boot tap|hold\n");
         }
     } else if (!strcmp(cmd, "wpad")) {
         if (!strcmp(arg, "test")) {

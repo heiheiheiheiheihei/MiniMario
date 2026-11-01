@@ -145,9 +145,10 @@ void ui_menu_move(int delta)
     int count = rom_store_count();
     int rows = visible_rows();
     if (count > 0) {
-        int sel = s_sel + delta;
-        if (sel < 0) sel = 0;
-        if (sel >= count) sel = count - 1;
+        /* Wrap around: with a single BOOT button there is no "up", so the
+         * cursor must cycle through the list instead of stopping at the ends. */
+        int sel = (s_sel + delta) % count;
+        if (sel < 0) sel += count;
         s_sel = sel;
         if (s_sel < s_top) s_top = s_sel;
         if (s_sel >= s_top + rows) s_top = s_sel - rows + 1;
@@ -384,13 +385,13 @@ static void draw_footer(const layout_t *L)
     int y = L->footer_y;
     if (L->footer_lines >= 3) {
         text(4, y, "A play  B rescan", UI_CYAN, UI_BLACK, 1);
-        text(4, y + 10, "SEL+STA quit", UI_CYAN, UI_BLACK, 1);
-        text(4, y + 20, "serial: help", UI_CYAN, UI_BLACK, 1);
+        text(4, y + 10, "BOOT tap=next hold=play", UI_YELLOW, UI_BLACK, 1);
+        text(4, y + 20, "SEL+STA quit | serial: help", UI_CYAN, UI_BLACK, 1);
         return;
     }
     display_ui_rect(0, y - 3, L->w, 1, UI_DGRAY);
     text(4, y, "A/START play   B rescan   SEL+STA quit", UI_CYAN, UI_BLACK, 1);
-    text(4, y + 10, "serial: help | up/down/select | shot", UI_CYAN, UI_BLACK, 1);
+    text(4, y + 10, "BOOT tap=next hold=play | serial: help", UI_YELLOW, UI_BLACK, 1);
 }
 
 /* ------------------------------------------------------------------ */

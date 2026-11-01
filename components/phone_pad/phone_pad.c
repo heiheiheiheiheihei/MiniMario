@@ -44,6 +44,8 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t s_mask;
 static bool s_use_password;
 static int s_stations;
+static int s_probe_count;
+static int64_t s_last_probe_log_us;
 static volatile int64_t s_last_rx_us;
 
 /* ------------------------------------------------------------------------- */
@@ -57,24 +59,38 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     switch (id) {
     case WIFI_EVENT_AP_PROBEREQRECVED: {
         wifi_event_ap_probe_req_rx_t *e = (wifi_event_ap_probe_req_rx_t *)data;
-        ESP_LOGI(TAG, "probe request from " MACSTR " rssi=%d", MAC2STR(e->mac), e->rssi);
+        /* Rate-limited: a scanning phone sends dozens of probes per second and
+         * each log line costs real time on the emulator's CPU. */
+        s_probe_count++;
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - s_last_probe_log_us > 2000000) {
+            ESP_LOGI(TAG, "probe request from " MACSTR " rssi=%d (%d probes since last log)",
+                     MAC2STR(e->mac), e->rssi, s_probe_count);
+            s_probe_count = 0;
+            s_last_probe_log_us = now_us;
+        }
         break;
     }
     case WIFI_EVENT_AP_START:
-        ESP_LOGI(TAG, "AP started");
+        ESP_LOGI(TAG, "AP started (heap=%u)",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
         break;
     case WIFI_EVENT_AP_STACONNECTED: {
         wifi_event_ap_staconnected_t *e = (wifi_event_ap_staconnected_t *)data;
         s_stations++;
-        ESP_LOGI(TAG, "station joined: " MACSTR " aid=%d (stations=%d)", MAC2STR(e->mac), e->aid,
-                 s_stations);
+        ESP_LOGI(TAG, "station joined: " MACSTR " aid=%d (stations=%d) heap=%u largest=%u",
+                 MAC2STR(e->mac), e->aid, s_stations,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
         break;
     }
     case WIFI_EVENT_AP_STADISCONNECTED: {
         wifi_event_ap_stadisconnected_t *e = (wifi_event_ap_stadisconnected_t *)data;
         if (s_stations > 0) s_stations--;
-        ESP_LOGW(TAG, "station left: " MACSTR " aid=%d reason=%d (stations=%d)", MAC2STR(e->mac),
-                 e->aid, e->reason, s_stations);
+        ESP_LOGW(TAG, "station left: " MACSTR " aid=%d reason=%d (stations=%d) heap=%u largest=%u",
+                 MAC2STR(e->mac), e->aid, e->reason, s_stations,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
         break;
     }
     default:
@@ -611,8 +627,10 @@ esp_err_t phone_pad_selftest(char *report, size_t len)
 void phone_pad_status(char *buf, size_t len)
 {
     if (buf == NULL || len == 0) return;
-    snprintf(buf, len, "wpad=%s ssid=%s auth=%s url=%s stations=%d client=%d mask=0x%02x heap=%u",
+    snprintf(buf, len, "wpad=%s ssid=%s auth=%s url=%s stations=%d client=%d mask=0x%02x "
+             "heap=%u largest=%u",
              s_running ? "on" : "off", PHONE_PAD_SSID, s_use_password ? "WPA2" : "open",
              PHONE_PAD_URL, phone_pad_stations(), phone_pad_clients(), phone_pad_read(),
-             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
 }

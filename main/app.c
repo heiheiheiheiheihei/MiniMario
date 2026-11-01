@@ -22,6 +22,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_task_wdt.h"
 #include "esp_heap_caps.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
@@ -296,9 +297,105 @@ int app_get_bgr(void) { return display_get_bgr() ? 1 : 0; }
 /* emulator input                                                      */
 /* ------------------------------------------------------------------ */
 
-/* START+SELECT held for 800 ms quits.  BOOT held for 1.5 s quits as well. */
+/* ------------------------------------------------------------------ */
+/* single-button (BOOT) control                                        */
+/* ------------------------------------------------------------------ */
+/* The board only has one usable button when no gamepad/phone is around,
+ * so the BOOT button drives the whole UI:
+ *
+ *   menu : tap  -> move to the next ROM
+ *          hold -> start the highlighted ROM
+ *   game : hold -> A button
+ *          1.5 s hold -> quit back to the menu
+ *          double tap -> START (to get past title screens)
+ *
+ * Events are edge based, so the same button can drive both modes without
+ * the old "BOOT == A" fallback leaking A presses into the menu.
+ */
+#define BOOT_TAP_MAX_US 600000
+#define BOOT_HOLD_MENU_US 800000
+#define BOOT_HOLD_GAME_US 1500000
+#define BOOT_DEBOUNCE_US 20000
+#define BOOT_DOUBLE_US 400000
+
+typedef enum { BOOT_EVT_NONE = 0, BOOT_EVT_SHORT = 1, BOOT_EVT_LONG = 2 } boot_evt_t;
+
+static struct {
+    bool pressed;
+    bool consumed; /* long press already reported for this hold */
+    int64_t t_down;
+    int64_t t_change;
+} s_boot;
+
+static volatile int s_sim_short; /* console injection for testing */
+static volatile int s_sim_long;
+
+void app_boot_simulate(int kind)
+{
+    if (kind == BOOT_EVT_LONG) {
+        s_sim_long++;
+    } else {
+        s_sim_short++; /* two calls in a row simulate a double tap */
+    }
+}
+
+static bool boot_is_pressed(void) { return s_boot.pressed; }
+
+/* Forget the current press: used when a mode change happens while the button
+ * is still down, so the new mode does not see a phantom tap/hold. */
+static void boot_events_reset(bool suppress_current)
+{
+    int64_t now = esp_timer_get_time();
+    bool down = gpio_get_level(BOOT_BTN_GPIO) == 0;
+    s_boot.pressed = down;
+    s_boot.t_down = now;
+    s_boot.t_change = now;
+    s_boot.consumed = suppress_current && down;
+}
+
+static boot_evt_t boot_poll(void)
+{
+    if (s_sim_long > 0) {
+        s_sim_long--;
+        return BOOT_EVT_LONG;
+    }
+    if (s_sim_short > 0) {
+        s_sim_short--;
+        return BOOT_EVT_SHORT;
+    }
+
+    int64_t now = esp_timer_get_time();
+    bool down = gpio_get_level(BOOT_BTN_GPIO) == 0;
+
+    if (down != s_boot.pressed) {
+        if (now - s_boot.t_change < BOOT_DEBOUNCE_US) return BOOT_EVT_NONE;
+        s_boot.t_change = now;
+        s_boot.pressed = down;
+        if (down) {
+            s_boot.t_down = now;
+            s_boot.consumed = false;
+            return BOOT_EVT_NONE;
+        }
+        bool tapped = !s_boot.consumed && (now - s_boot.t_down) < BOOT_TAP_MAX_US;
+        s_boot.consumed = false;
+        return tapped ? BOOT_EVT_SHORT : BOOT_EVT_NONE;
+    }
+
+    if (s_boot.pressed && !s_boot.consumed) {
+        int64_t hold_us = (s_mode == APP_MODE_EMU) ? BOOT_HOLD_GAME_US : BOOT_HOLD_MENU_US;
+        if (now - s_boot.t_down >= hold_us) {
+            s_boot.consumed = true;
+            return BOOT_EVT_LONG;
+        }
+    }
+    return BOOT_EVT_NONE;
+}
+
+/* Merge the gamepad, phone and single BOOT button into one NES pad mask.
+ * START+SELECT held for 800 ms quits the game. */
 static uint8_t input_source(void)
 {
+    esp_task_wdt_reset();
     uint8_t pad = gamepad_read();
     pad |= phone_pad_read();
     int64_t now = esp_timer_get_time();
@@ -318,20 +415,24 @@ static uint8_t input_source(void)
         combo_fired = false;
     }
 
-    static int64_t boot_since;
-    static bool boot_fired;
-    if (gpio_get_level(BOOT_BTN_GPIO) == 0) {
-        if (!boot_since) {
-            boot_since = now;
-        } else if (!boot_fired && now - boot_since > 1500000) {
-            boot_fired = true;
-            ESP_LOGI(TAG, "quit combo (BOOT long press)");
-            nes_port_request_quit();
+    /* BOOT button: held = A, 1.5 s = quit, double tap = START. */
+    static int64_t s_bt_start_until;
+    static int64_t s_bt_last_tap;
+    boot_evt_t ev = boot_poll();
+    if (ev == BOOT_EVT_LONG) {
+        ESP_LOGI(TAG, "quit (BOOT 1.5 s hold)");
+        nes_port_request_quit();
+    } else if (ev == BOOT_EVT_SHORT) {
+        if (s_bt_last_tap && now - s_bt_last_tap < BOOT_DOUBLE_US) {
+            s_bt_start_until = now + 120000;
+            s_bt_last_tap = 0;
+            ESP_LOGI(TAG, "BOOT double tap: START");
+        } else {
+            s_bt_last_tap = now;
         }
-    } else {
-        boot_since = 0;
-        boot_fired = false;
     }
+    if (boot_is_pressed()) pad |= PAD_A;
+    if (now < s_bt_start_until) pad |= PAD_START;
 
     return pad;
 }
@@ -350,6 +451,7 @@ static void boot_button_init(void)
     esp_err_t err = gpio_config(&cfg);
     if (err != ESP_OK) ESP_LOGW(TAG, "BOOT pin config: %s", esp_err_to_name(err));
 }
+
 
 /* ------------------------------------------------------------------ */
 /* menu / emulator                                                     */
@@ -424,12 +526,14 @@ static void do_play(int index, const char *path)
 
     s_mode = APP_MODE_EMU;
     s_emulating = true;
+    boot_events_reset(true);
     ESP_LOGI(TAG, "emulator running (free heap=%u)", (unsigned)esp_get_free_heap_size());
 
     esp_err_t run_err = nes_port_run();
 
     s_emulating = false;
     s_mode = APP_MODE_MENU;
+    boot_events_reset(true);
     nes_port_set_frame_sink(NULL);
     nes_port_set_input_source(NULL);
 
@@ -483,11 +587,22 @@ static void menu_loop(void)
     int64_t ignore_pad_until = 0;
     int64_t last_alive = esp_timer_get_time();
 
+    boot_events_reset(true);
+
     while (1) {
+        esp_task_wdt_reset();
         process_requests();
 
         int64_t now = esp_timer_get_time();
         uint8_t pad = gamepad_read() | phone_pad_read();
+
+        /* BOOT button: tap = next ROM, hold = play. */
+        boot_evt_t bev = boot_poll();
+        if (bev == BOOT_EVT_SHORT) {
+            ui_menu_move(1);
+        } else if (bev == BOOT_EVT_LONG) {
+            if (app_request_play(-1)) continue;
+        }
 
         if (now < ignore_pad_until || now < s_menu_ignore_pad_until) {
             prev_pad = pad;
@@ -556,7 +671,11 @@ static void print_board_info(void)
 
 void app_run(void)
 {
-    ESP_LOGI(TAG, "=== MiniMario %s boot ===", MINIMARIO_VERSION);
+    esp_reset_reason_t rr = esp_reset_reason();
+    ESP_LOGI(TAG, "=== MiniMario %s boot === reset_reason=%d (%s)", MINIMARIO_VERSION, (int)rr,
+             rr == ESP_RST_POWERON ? "poweron" : rr == ESP_RST_SW ? "sw" : rr == ESP_RST_PANIC
+                 ? "PANIC" : rr == ESP_RST_INT_WDT ? "INT_WDT" : rr == ESP_RST_TASK_WDT ? "TASK_WDT"
+                 : rr == ESP_RST_BROWNOUT ? "BROWNOUT" : rr == ESP_RST_USB ? "usb" : "other");
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -565,6 +684,11 @@ void app_run(void)
     }
     settings_load();
     requests_init();
+
+    /* Subscribe the main task to the task watchdog and feed it from the app
+     * loops.  Without this the emulator's 60 Hz busy loop starves the idle
+     * task and the watchdog prints a backtrace every 10 s. */
+    (void) esp_task_wdt_add(NULL);
 
     print_board_info();
 
@@ -576,6 +700,8 @@ void app_run(void)
     acquire_canvas();
 
     boot_button_init();
+    /* BOOT is handled by the single-button UI logic below, not as a fake A. */
+    gamepad_set_fallback(false);
     err = gamepad_init();
     if (err != ESP_OK) ESP_LOGW(TAG, "gamepad init: %s (keyboard-only mode)", esp_err_to_name(err));
 

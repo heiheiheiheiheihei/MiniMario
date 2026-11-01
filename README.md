@@ -33,7 +33,7 @@
 | MCU | ESP32-C6FH4，RISC-V 单核 **160 MHz**，**512 KB SRAM**，**4 MB Flash**，**无 PSRAM** |
 | 屏幕 | ST7789，172×320，SPI2 @ **80 MHz**（MOSI 6 / SCLK 7 / CS 14 / DC 15 / RST 21 / BL 22） |
 | TF 卡 | 与屏共用 SPI：MISO 5 / CS 4（20 MHz SDSPI） |
-| 按键 | BOOT = GPIO9（备用 NES A 键） |
+| 按键 | BOOT = GPIO9（**单键即可操作整个界面**；游戏中作 A 键） |
 | 蓝牙 | BLE 5 only（**没有**经典蓝牙 BR/EDR） |
 
 ## 3. 开箱使用（固件已烧录）
@@ -53,7 +53,25 @@
 
 ## 4. 手柄
 
-### 4.1 重要：C6 只支持 BLE 手柄
+### 4.1 只用 BOOT 一个键（没有手柄 / 手机也能操作）
+
+板子上只有一个可用按键（BOOT，GPIO9），所以固件把整个界面做成了**单键操作**：
+
+| 当前界面 | 操作 | 效果 |
+|---|---|---|
+| 菜单 | **短按**（< 0.6 秒） | 光标移到下一个 ROM（到列表末尾自动回到第一个） |
+| 菜单 | **长按**（≥ 0.8 秒） | 启动当前选中的 ROM |
+| 游戏 | **按住** | A 键（跳跃/确认） |
+| 游戏 | **双击**（两下间隔 < 0.4 秒） | START 键（用来过 "PRESS START" 标题画面） |
+| 游戏 | **长按**（≥ 1.5 秒） | 退出游戏，回到菜单 |
+
+菜单底部会显示提示：`BOOT tap=next hold=play`。
+旧的「BOOT 直接等于 A 键」的兜底逻辑已经关闭，避免按 BOOT 时在菜单里误启动游戏。
+
+> 想确认按键逻辑而手边不方便按？串口控制台可以注入事件：
+> `boot tap`（短按）、`boot hold`（长按）、`boot double`（双击）。
+
+### 4.2 重要：C6 只支持 BLE 手柄
 
 ESP32-C6 的蓝牙是 **Bluetooth LE 5 only**，没有经典蓝牙（BR/EDR），所以：
 
@@ -72,11 +90,11 @@ ESP32-C6 的蓝牙是 **Bluetooth LE 5 only**，没有经典蓝牙（BR/EDR）�
 
 ![Xbox 按键](docs/screenshots/menu.png)
 
-### 4.2 按键映射
+### 4.3 按键映射
 
 | NES | Xbox (BLE) | 通用 BLE HID | 备用 |
 |---|---|---|---|
-| A | A | A / 南键 | **BOOT 键**、串口 `key a` |
+| A | A | A / 南键 | **BOOT 按住**（见 4.1）、串口 `key a` |
 | B | B | B / 东键 | 串口 `key b` |
 | Start | Menu | Start | 串口 `key start` |
 | Select | View | Select | 串口 `key select` |
@@ -86,7 +104,7 @@ ESP32-C6 的蓝牙是 **Bluetooth LE 5 only**，没有经典蓝牙（BR/EDR）�
 配对：手柄进入配对模式（Xbox：按住手柄顶部配对键 3 秒直到灯闪），板子上电后自动扫描连接。
 连接后串口会打印 `gamepad: connected ...`。
 
-### 4.3 手机当手柄（Wi-Fi 网页虚拟手柄，推荐）
+### 4.4 手机当手柄（Wi-Fi 网页虚拟手柄，推荐）
 
 不需要装 App，iPhone / Android 都能用：
 
@@ -102,7 +120,7 @@ ESP32-C6 的蓝牙是 **Bluetooth LE 5 only**，没有经典蓝牙（BR/EDR）�
 
 > 连板子热点时手机不能上网；个别 Android 机在"无互联网"时会切回移动数据，需在 Wi-Fi 设置里关闭自动切换。
 
-### 4.4 蓝牙键盘当手柄（仅 Android，可选）
+### 4.5 蓝牙键盘当手柄（仅 Android，可选）
 
 固件同时支持 **BLE HID 键盘**：在安卓手机装一个 "BLE HID 键盘" 类 App（把手机模拟成蓝牙键盘），
 板子会自动把它当控制器连接。键位：
@@ -158,6 +176,7 @@ menu | quit               返回菜单
 up/down/select/rescan     菜单操作
 key <a|b|select|start|up|down|left|right|none> [+ ...]   注入手柄按键
 pad                       查看当前按键
+boot tap|hold|double      模拟 BOOT 按键短按/长按/双击（测试）
 rot <0-3>                 屏幕方向（0/2 竖屏，1/3 横屏），存 NVS
 scale <0-2>               0=FIT 1=FILL 2=PIXEL
 bl <0-100>                背光
@@ -257,7 +276,7 @@ docs/                   文档与截图
 ## 11. 已知限制
 
 - **没有声音**（板子无音频硬件）
-- **BLE only**：PS5/PS4/Switch/Wii 等经典蓝牙手柄不能直连（硬件限制）；手机控制用 Wi-Fi 网页手柄（4.3）或安卓 BLE 键盘 App（4.4）
+- **BLE only**：PS5/PS4/Switch/Wii 等经典蓝牙手柄不能直连（硬件限制）；手机控制用 Wi-Fi 网页手柄（4.4）或安卓 BLE 键盘 App（4.5）
 - 512 KB SRAM：TF 卡 ROM 上限 256 KB；更大 ROM 用 flash 分区（1.9 MB）
 - 仅支持 iNES 格式（不支持 UNIF / FDS）
 - 模拟器是软件实现，个别 Mapper 4/5 复杂游戏可能掉帧
