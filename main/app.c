@@ -391,11 +391,128 @@ static boot_evt_t boot_poll(void)
     return BOOT_EVT_NONE;
 }
 
+/* ------------------------------------------------------------------ */
+/* live status in the letterbox bars                                    */
+/* ------------------------------------------------------------------ */
+/* With FIT/PIXEL scaling the panel keeps two empty bars beside the game
+ * image; they used to still show the menu.  Now the app pushes live numbers
+ * there twice a second and the display driver renders them into the bars. */
+
+static char s_hud_rom[8] = "--";
+
+static void hud_rom_name(const char *name)
+{
+    int n = 0;
+    if (name != NULL) {
+        while (name[n] && name[n] != '.' && name[n] != '_' && name[n] != ' ' && n < 6) n++;
+    }
+    for (int i = 0; i < 6; i++) {
+        char c = (i < n) ? name[i] : ' ';
+        if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+        s_hud_rom[i] = c;
+    }
+    s_hud_rom[6] = 0;
+    while (n > 0 && s_hud_rom[n - 1] == ' ') s_hud_rom[--n] = 0;
+    if (n == 0) snprintf(s_hud_rom, sizeof(s_hud_rom), "--");
+}
+
+/* Draw the "label / value" block centred in one bar rectangle of the canvas. */
+static void hud_draw_block(int bx, int by, int bw, int bh, const char *text)
+{
+    int lines = 1;
+    for (const char *p = text; *p; p++) {
+        if (*p == '\n') lines++;
+    }
+    int top = by + (bh - lines * 10) / 2;
+    if (top < by) top = by;
+    int lead = (bw - 6 * 8) / 2;
+    if (lead < 0) lead = 0;
+    const char *s = text;
+    for (int i = 0; i < lines && s && *s; i++) {
+        const char *e = strchr(s, '\n');
+        int len = e ? (int)(e - s) : (int)strlen(s);
+        if (len > 6) len = 6;
+        char line[8];
+        memcpy(line, s, (size_t)len);
+        line[len] = 0;
+        display_ui_text(bx + lead, top + i * 10, line, (i & 1) ? UI_WHITE : UI_CYAN,
+                        UI_BLACK, 1);
+        s = e ? e + 1 : NULL;
+    }
+}
+
+static void hud_update(void)
+{
+    if (display_get_scale() == DISPLAY_SCALE_FILL) return; /* no bars at all */
+    if (display_ui_acquire() != ESP_OK) return;
+
+    nes_port_stats_t st;
+    nes_port_get_stats_ex(&st);
+    display_stats_t dst;
+    display_get_stats(&dst);
+
+    /* Averages, not the last frame: single frames are far too noisy for a
+     * status readout that is refreshed twice a second. */
+    unsigned core_us = (st.frames > 0) ? (unsigned)(st.total_core_us / st.frames)
+                                       : (unsigned)st.last_core_us;
+    unsigned disp_us = dst.us_avg;
+
+    char fps_s[16], cpu_s[16], dsp_s[16], heap_s[16];
+    snprintf(fps_s, sizeof(fps_s), "%u.%u", (unsigned)(st.fps_x100 / 100),
+             (unsigned)((st.fps_x100 % 100) / 10));
+    snprintf(cpu_s, sizeof(cpu_s), "%u.%ums", core_us / 1000, (core_us / 100) % 10);
+    snprintf(dsp_s, sizeof(dsp_s), "%u.%ums", disp_us / 1000, (disp_us / 100) % 10);
+    snprintf(heap_s, sizeof(heap_s), "%uK", (unsigned)(esp_get_free_heap_size() / 1024));
+
+    const char *pad_s = gamepad_count() > 0 ? "BT" : (phone_pad_clients() > 0 ? "WIFI" : "--");
+
+    char left[96], right[96];
+    snprintf(left, sizeof(left), "FPS\n%s\nCPU\n%s\nDSP\n%s", fps_s, cpu_s, dsp_s);
+    snprintf(right, sizeof(right), "HEAP\n%s\nROM\n%s\nPAD\n%s", heap_s, s_hud_rom, pad_s);
+
+    const int lw = display_logical_width();
+    const int lh = display_logical_height();
+    int x0, y0, w, h;
+    display_image_rect(&x0, &y0, &w, &h);
+
+    if (display_get_rotation() == DISPLAY_ROT_0 || display_get_rotation() == DISPLAY_ROT_180) {
+        /* portrait: bars are the strips above and below the image */
+        if (y0 > 0) {
+            display_ui_rect(0, 0, lw, y0, UI_BLACK);
+            hud_draw_block(0, 0, lw, y0, left);
+        }
+        int by = y0 + h, bh = lh - by;
+        if (bh > 0) {
+            display_ui_rect(0, by, lw, bh, UI_BLACK);
+            hud_draw_block(0, by, lw, bh, right);
+        }
+    } else {
+        if (x0 > 0) {
+            display_ui_rect(0, 0, x0, lh, UI_BLACK);
+            hud_draw_block(0, 0, x0, lh, left);
+        }
+        int bx = x0 + w, bw = lw - bx;
+        if (bw > 0) {
+            display_ui_rect(bx, 0, bw, lh, UI_BLACK);
+            hud_draw_block(bx, 0, bw, lh, right);
+        }
+    }
+    display_ui_commit_bars();
+}
+
 /* Merge the gamepad, phone and single BOOT button into one NES pad mask.
  * START+SELECT held for 800 ms quits the game. */
 static uint8_t input_source(void)
 {
     esp_task_wdt_reset();
+    static int64_t s_hud_next_us;
+    {
+        int64_t now_us = esp_timer_get_time();
+        if (now_us >= s_hud_next_us) {
+            s_hud_next_us = now_us + 500 * 1000;
+            hud_update();
+        }
+    }
     uint8_t pad = gamepad_read();
     pad |= phone_pad_read();
     int64_t now = esp_timer_get_time();
@@ -502,6 +619,7 @@ static void do_play(int index, const char *path)
     }
 
     const char *rom_name = path ? path : rom_store_get(index)->name;
+    hud_rom_name(rom_name);
     ESP_LOGI(TAG, "loading ROM: %u bytes (%s), heap=%u", (unsigned)img.len, rom_name,
              (unsigned)esp_get_free_heap_size());
 
@@ -527,6 +645,7 @@ static void do_play(int index, const char *path)
     s_mode = APP_MODE_EMU;
     s_emulating = true;
     boot_events_reset(true);
+    hud_update(); /* paint the bars before the first frame */
     ESP_LOGI(TAG, "emulator running (free heap=%u)", (unsigned)esp_get_free_heap_size());
 
     esp_err_t run_err = nes_port_run();

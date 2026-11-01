@@ -23,6 +23,7 @@
 - **4 种屏幕方向**（rot 0/1/2/3），保存在 NVS
 - **蓝牙 BLE 手柄**（Bluepad32 v4.2.0，BTstack）+ 无手柄时的备用手动输入
 - **ROM 来源**：TF 卡 `/sdcard/*.nes`，或片内 1.9 MB `roms` 分区（出厂内置 2 个免费开源游戏）
+- **游戏画面两侧实时状态栏**：FPS / 模拟耗时 / 显示耗时 / 空闲内存 / ROM / 输入源
 - **串口调试控制台**：截图（`shot`）、改方向/缩放/背光、注入按键、查看 fps/内存
 - **无音频**：这块板子没有 DAC / 功放 / 喇叭，因此固件不输出声音（模拟器也不消耗 APU 采样算力）
 
@@ -50,6 +51,22 @@
 | Nova the Squirrel（Mapper 1，flash mmap） | Twin Dragons 游戏中 |
 |---|---|
 | ![Nova](docs/screenshots/game_nova.png) | ![Twin Dragons](docs/screenshots/game_twin_dragons.png) |
+
+### 3.1 游戏画面两侧的实时状态栏
+
+`FIT` / `PIXEL` 缩放时游戏画面两侧有留白，以前会残留菜单画面；现在这两条留白改成
+实时状态栏，每秒刷新 2 次（`scale FILL` 铺满全屏时没有留白，自然不显示）：
+
+![游戏中的状态栏](docs/screenshots/game_hud.png)
+
+| 左栏 | 含义 | 右栏 | 含义 |
+|---|---|---|---|
+| `FPS` | 模拟器实际帧率（NTSC 60.0988 为标准值） | `HEAP` | 当前空闲堆内存（KB） |
+| `CPU` | 平均每帧模拟耗时（不含刷屏），单位 ms | `ROM` | 当前 ROM（最多 6 个字符） |
+| `DSP` | 平均每帧刷屏耗时（转换 + SPI），单位 ms | `PAD` | 输入源：`BT` 蓝牙手柄 / `WIFI` 手机网页 / `--` 无 |
+
+状态栏只在文字变化时重画那 110 行（约 4 ms，2 Hz），对帧率影响 < 0.6%。
+串口调试时可以用 `shotui` 导出这块 UI 画布（游戏运行中也能截）。
 
 ## 4. 手柄
 
@@ -185,6 +202,7 @@ wpad on|off|status|test   手机 Wi-Fi 手柄开关 / 状态 / 自检
 wpad press <hex> [ms]     模拟手机按键（如 01=A、0c=Start+Select），自动化测试用
 test                      显示校准测试图（判断方向/镜像/颜色）
 shot                      截图（二进制帧 + 调色板）
+shotui                    导出 UI 画布（游戏运行时含两侧状态栏）
 ping | reboot
 ```
 

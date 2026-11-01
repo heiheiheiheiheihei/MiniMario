@@ -114,6 +114,16 @@ void display_blit(int x, int y, int w, int h, const uint16_t *pixels);
  * the SPI DMA pipeline (the last band's transfer is waited for). */
 void display_show_nes_frame(const uint8_t *indexed, const uint16_t *palette565);
 
+/* Rectangle of the game image in logical (canvas) coordinates.  The area
+ * outside it is the letterbox bar space, which the app can use for status
+ * text while a game runs.  For DISPLAY_SCALE_FILL the rect covers everything. */
+void display_image_rect(int *x0, int *y0, int *w, int *h);
+
+/* Flush only the letterbox bars of the UI canvas to the panel (the game image
+ * area is owned by display_show_nes_frame()).  Call after drawing HUD text in
+ * the bar rectangles; the canvas must be acquired. */
+void display_ui_commit_bars(void);
+
 /* UI canvas: DISPLAY_W x DISPLAY_H (landscape) or DISPLAY_H x DISPLAY_W
  * (portrait rotations) indexed canvas, committed to the panel with the current
  * rotation.  Released while the emulator runs to save RAM.  All draw calls are

@@ -113,6 +113,8 @@ static uint16_t s_nes_col[PANEL_W];  /* portrait:  source column index per panel
 static uint32_t s_ui_off[PANEL_W];   /* landscape: canvas byte offset per panel column */
 static uint16_t s_ui_col[PANEL_W];   /* portrait:  canvas column index per panel column */
 static int s_band_v0, s_band_v1;     /* physical rows covered by NES content */
+static int s_img_x0, s_img_y0, s_img_w, s_img_h; /* game rect in logical coords */
+
 
 /* ---- stats ---- */
 static display_stats_t s_stats;
@@ -260,6 +262,10 @@ static void rebuild_maps(void)
         default:                  w = 320; break;
         }
         x0 = (DISPLAY_W - w) / 2;
+        s_img_x0 = x0;
+        s_img_y0 = 0;
+        s_img_w = w;
+        s_img_h = DISPLAY_H;
 
         for (int x = 0; x < DISPLAY_W; x++) {
             int sx;
@@ -326,6 +332,11 @@ static void rebuild_maps(void)
             if (sy > 223) sy = 223;
             s_srcy[y] = (int16_t)sy;
         }
+
+        s_img_x0 = 0;
+        s_img_y0 = y0;
+        s_img_w = s_canvas_w;
+        s_img_h = h;
 
         if (s_rot == DISPLAY_ROT_0) {
             s_band_v0 = y0;
@@ -557,6 +568,33 @@ static uint32_t stream_frame(int y0, int rows_total, band_conv_fn conv, void *ct
 /* ------------------------------------------------------------------------- */
 /* NES frame presentation                                                    */
 /* ------------------------------------------------------------------------- */
+
+/* ------------------------------------------------------------------------- */
+/* letterbox bars: reuse the UI canvas outside the game image                */
+/* ------------------------------------------------------------------------- */
+/* While a game runs the panel is only refreshed inside the 210 px wide image,
+ * so the bars beside it would keep whatever the menu left there.  The app
+ * draws status text into those rectangles of the (static) UI canvas and calls
+ * display_ui_commit_bars() to flush just the bar rows.  This reuses the normal
+ * canvas rotation/scale mapping, so it works for every rotation. */
+void display_image_rect(int *x0, int *y0, int *w, int *h)
+{
+    if (x0) *x0 = s_img_x0;
+    if (y0) *y0 = s_img_y0;
+    if (w) *w = s_img_w;
+    if (h) *h = s_img_h;
+}
+
+void display_ui_commit_bars(void)
+{
+    if (!s_inited || !s_canvas) return;
+    xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+    if (s_scale != DISPLAY_SCALE_FILL) {
+        stream_frame(0, s_band_v0, conv_ui_band, NULL);
+        stream_frame(s_band_v1, PANEL_H - s_band_v1, conv_ui_band, NULL);
+    }
+    xSemaphoreGiveRecursive(s_lock);
+}
 
 void display_show_nes_frame(const uint8_t *indexed, const uint16_t *palette565)
 {

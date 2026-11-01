@@ -148,6 +148,7 @@ static void cmd_help(void)
     out("  test                     show the display test pattern (4 s)\n");
     out("  clear                    clear the screen\n");
     out("  shot                     dump frame/canvas (indexed + palette)\n");
+    out("  shotui                   dump the UI canvas even while a game runs\n");
     out("  shotraw                  dump the raw indexed buffer only\n");
     out("  ping                     'OK pong' liveness check\n");
     out("  reboot                   restart the device\n");
@@ -416,9 +417,9 @@ static void cmd_pad(void)
     }
 }
 
-static bool dump_shot(bool raw)
+static bool dump_shot(bool raw, bool force_ui)
 {
-    bool emu = app_is_emulating();
+    bool emu = app_is_emulating() && !force_ui;
     bool ok = true;
 
     logs_quiet(true);
@@ -486,11 +487,11 @@ static bool dump_shot(bool raw)
     return ok;
 }
 
-static void cmd_shot(bool raw)
+static void cmd_shot(bool raw, bool force_ui)
 {
     /* Small settle delay: the app task may be in the middle of a redraw. */
     vTaskDelay(pdMS_TO_TICKS(30));
-    dump_shot(raw);
+    dump_shot(raw, force_ui);
 }
 
 /* ------------------------------------------------------------------ */
@@ -653,9 +654,11 @@ static void handle_line(char *line)
             out("ERR busy: emulator running\n");
         }
     } else if (!strcmp(cmd, "shot")) {
-        cmd_shot(false);
+        cmd_shot(false, false);
     } else if (!strcmp(cmd, "shotraw")) {
-        cmd_shot(true);
+        cmd_shot(true, false);
+    } else if (!strcmp(cmd, "shotui")) {
+        cmd_shot(false, true);
     } else if (!strcmp(cmd, "ping")) {
         out("OK pong\n");
     } else if (!strcmp(cmd, "reboot") || !strcmp(cmd, "reset")) {
