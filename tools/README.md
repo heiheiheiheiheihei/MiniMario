@@ -13,7 +13,7 @@ falls back to a pure-python PNG writer). Override the port with
 ## `pack_roms.py` — build the embedded ROM container
 
 ```bash
-python3 tools/pack_roms.py /tmp/roms/twin_dragons.nes /tmp/roms/nova.nes -o /tmp/mmroms.bin
+python3 tools/pack_roms.py roms/*.nes -o /tmp/mmroms.bin
 python3 tools/pack_roms.py --list /tmp/mmroms.bin
 ```
 
@@ -32,10 +32,11 @@ firmware as one legacy raw ROM.
 ## `flash_rom.py` — write ROMs to the `roms` partition (0x1F0000)
 
 ```bash
-python3 tools/flash_rom.py                      # pack + flash the two bundled demos
+python3 tools/flash_rom.py                      # pack + flash every roms/*.nes
 python3 tools/flash_rom.py --pack a.nes b.nes   # custom container
 python3 tools/flash_rom.py --file game.nes      # single legacy raw ROM
 python3 tools/flash_rom.py --pack a.nes --dry-run
+python3 tools/flash_rom.py --dry-run --out firmware/roms.bin   # rebuild the container only
 ```
 
 The tool reads offset/size from `partitions.csv`, refuses images larger than the

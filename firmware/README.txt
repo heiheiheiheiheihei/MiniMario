@@ -15,6 +15,12 @@ or manually:
   python -m esptool --chip esp32c6 -p /dev/ttyACM0 -b 460800 \
       write_flash 0x0 MiniMario-full-esp32c6.bin
 
-Built-in free games: Twin Dragons (zlib/CC-BY), Nova the Squirrel (GPLv3/CC-BY-NC-SA).
+Built-in games: 16 free / open-source NES homebrew ROMs (Super Tilt Bro., Nova the
+Squirrel, MineKart Madness, Driar, NES Runner, Twin Dragons, Mega Mountain,
+Falling, Floatmancer, Rainfall, RHDE, robotfindskitten, Thwaite,
+Big City Sliding Blaster, Zap Ruder, Concentration Room).
+Sources, versions, checksums and per-ROM licenses: ../roms/README.md and
+../roms/licenses/.
 No Nintendo copyrighted ROMs are included.
-Add your own .nes ROMs with tools/flash_rom.py or copy them to a TF card.
+Add your own .nes ROMs with tools/flash_rom.py (packs roms/*.nes) or copy them
+to a TF card.

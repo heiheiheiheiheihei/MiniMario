@@ -24,8 +24,10 @@ There are two ways to get ROMs onto the board:
 
 ### Embedded `roms` flash partition (recommended for permanent games)
 
-The `roms` data partition starts at **0x1F0000** and is 1.875 MB
-(`partitions.csv`: `roms, data, 0x40` → type = data/0x01, subtype = 0x40).
+The `roms` data partition starts at **0x1F0000** and is 1.9375 MB (2,031,616 B;
+`partitions.csv`: `roms, data, 0x40` → type = data/0x01, subtype = 0x40).
+The shipped [`roms/`](../roms/README.md) directory has 16 free / open-source
+homebrew ROMs (1,631,120 B container) that are embedded in the firmware image.
 Two layouts are supported:
 
 * **MMROM1 container** (preferred, holds several ROMs)
@@ -41,7 +43,7 @@ Two layouts are supported:
   `tools/pack_roms.py` and flash it with `tools/flash_rom.py`:
 
   ```bash
-  python3 tools/flash_rom.py                       # twin_dragons + nova
+  python3 tools/flash_rom.py                       # pack + flash all roms/*.nes
   python3 tools/flash_rom.py --pack a.nes b.nes
   ```
 
@@ -65,16 +67,22 @@ At boot the board initialises NVS, the display, the BLE gamepad backend
 ```
  MiniMario                              v0.1.0
 ------------------------------------------------
-  1 twin_dragons.nes                 40K [flash]
-  2 nova.nes                        256K [flash]
-  3 mygame.nes                       32K [sd]
+  1 croom.nes                       24K [flash]
+  2 driar.nes                      128K [flash]
+  3 falling.nes                     40K [flash]
   ...
- SD:OK ROM:1/3 HEAP:210K PAD:none            FPS:--
- twin_dragons.nes  [embedded]
+ 16 twin_dragons.nes                40K [flash]
+ SD:OK ROM:1/16 HEAP:210K PAD:none           FPS:--
+ croom.nes  [embedded]
 ------------------------------------------------
  A/START play   B rescan   START+SEL quit
  serial: help | up/down/select | shot
 ```
+
+The shipped `roms/` set contains 16 free / open-source homebrew games (the list
+scrolls; up to 64 entries fit). Their sources, licenses and SHA-256 checksums are
+in [`roms/README.md`](../roms/README.md); the firmware contains no
+Nintendo-copyrighted ROM.
 
 * **D-pad up/down** – move the cursor
 * **A** or **START** – start the selected ROM
@@ -149,7 +157,7 @@ restored at boot.
 Boot marker (printed once the menu is up):
 
 ```text
-MMBOOT ready fw=0.1.0 roms=2 sd=0 heap=164732
+MMBOOT ready fw=0.1.0 roms=16 sd=0 heap=164732
 ```
 
 Screenshot protocol (`shot` / `shotraw`):

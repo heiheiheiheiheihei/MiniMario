@@ -22,7 +22,7 @@
   - `PIXEL`：方像素，居中 197×172
 - **4 种屏幕方向**（rot 0/1/2/3），保存在 NVS
 - **蓝牙 BLE 手柄**（Bluepad32 v4.2.0，BTstack）+ 无手柄时的备用手动输入
-- **ROM 来源**：TF 卡 `/sdcard/*.nes`，或片内 1.9 MB `roms` 分区（出厂内置 2 个免费开源游戏）
+- **ROM 来源**：TF 卡 `/sdcard/*.nes`，或片内 1.9 MB `roms` 分区（出厂内置 16 个免费 / 开源 homebrew 游戏）
 - **游戏画面两侧实时状态栏**：FPS / 模拟耗时 / 显示耗时 / 空闲内存 / ROM / 输入源
 - **串口调试控制台**：截图（`shot`）、改方向/缩放/背光、注入按键、查看 fps/内存
 - **无音频**：这块板子没有 DAC / 功放 / 喇叭，因此固件不输出声音（模拟器也不消耗 APU 采样算力）
@@ -41,12 +41,31 @@
 
 上电 → 出现菜单 → 方向键选择 → A 开始，START+SELECT 退出回菜单。
 
-内置免费游戏（可直接玩，无需 TF 卡）：
+内置 16 个免费 / 开源 homebrew 游戏（可直接玩，无需 TF 卡）——全部用固件同款
+nofrendo 内核做过 600 帧启动测试，ROM 来源、版本与许可证全文见
+[`roms/README.md`](roms/README.md) 和 [`roms/licenses/`](roms/licenses/)：
 
 | 游戏 | 类型 | 大小 | 许可 |
 |---|---|---|---|
-| [Twin Dragons](https://github.com/Garydos/twin-dragons-nes) | 横版过关（马里奥 3 风格） | 40 KB | 代码 zlib，美术 CC-BY 3.0 |
+| [Super Tilt Bro.](https://github.com/sgadrat/super-tilt-bro) | 对战格斗（2P，含单人冒险） | 512 KB | WTFPL |
 | [Nova the Squirrel](https://github.com/NovaSquirrel/NovaTheSquirrel) | 横版解谜平台 | 256 KB | 代码 GPLv3，素材 CC-BY-NC-SA 4.0 |
+| [MineKart Madness](https://github.com/mhughson/mbh-cart) | 卡丁车竞速 / 对战 | 256 KB | MIT |
+| [Driar](http://driar.se/) | 单屏收集平台（38 关） | 128 KB | CC-BY-NC 3.0 |
+| [NES Runner](https://github.com/zorchenhimer/nes-runner) | 无尽跑酷 | 80 KB | MIT |
+| [Twin Dragons](https://github.com/Garydos/twin-dragons-nes) | 横版过关（马里奥 3 风格） | 40 KB | 代码 zlib，美术 CC-BY 3.0* |
+| [Mega Mountain](https://github.com/pinobatch/MegaMountainNES) | 横版平台 | 40 KB | GPLv3 / MIT |
+| [Falling](https://github.com/xram64/falling-nes) | 落块解谜 | 40 KB | MIT |
+| [Floatmancer](https://github.com/NotExactlySiev/floatmancer) | 物理弹跳平台 | 40 KB | CC0 |
+| [Rainfall](https://github.com/bbossa/rainfall_nes) | 竖版躲避 / 动作 | 40 KB | CC0 |
+| [RHDE: Furniture Fight](https://github.com/pinobatch/rhde-nes) | 家具摆放即时策略 | 32 KB | FSFAP |
+| [robotfindskitten](https://github.com/pinobatch/rfk-nes) | 禅意探索（1-2P） | 32 KB | zlib |
+| [Thwaite](https://github.com/pinobatch/thwaite-nes) | 防空射击（1-2P） | 24 KB | GPLv3 |
+| [Big City Sliding Blaster](https://github.com/NovaSquirrel/SlidingBlaster) | 俯视角射击 | 24 KB | zlib |
+| [Zap Ruder](https://github.com/pinobatch/zap-ruder) | 空曲棍球（1-2P） | 24 KB | FSFAP |
+| [Concentration Room](https://github.com/pinobatch/croom-nes) | 翻牌记忆（1-2P） | 24 KB | GPLv3 |
+
+\* Twin Dragons 的 FamiTone 音乐 / 音效由 Shiru 保留版权，ROM 按作者发布的
+原始二进制原样分发（详见 [`roms/README.md`](roms/README.md)）。
 
 | Nova the Squirrel（Mapper 1，flash mmap） | Twin Dragons 游戏中 |
 |---|---|
@@ -170,11 +189,12 @@ ESP32-C6 的蓝牙是 **Bluetooth LE 5 only**，没有经典蓝牙（BR/EDR）�
 
 ```bash
 # 单个 ROM：直接放在 roms 分区开头（legacy 格式，最快）
-python tools/flash_rom.py /path/to/supermario.nes
+python tools/flash_rom.py --file /path/to/yourgame.nes
 
-# 多个 ROM：打包成 MMROM1 容器（菜单里会列出多个条目）
-python tools/pack_roms.py twin_dragons.nes nova.nes supermario.nes -o roms.bin
-python tools/flash_rom.py --container roms.bin
+# 多个 ROM：把 .nes 放进 roms/，一条命令打包成 MMROM1 容器并烧录
+python tools/flash_rom.py                      # 打包 roms/*.nes + 烧录
+python tools/flash_rom.py --pack a.nes b.nes   # 或者临时指定文件
+python tools/flash_rom.py --dry-run --out firmware/roms.bin   # 只重建容器
 ```
 
 > 片内 `roms` 分区 1.9 MB，用的是 flash mmap，不占 512 KB SRAM。
@@ -274,8 +294,8 @@ idf.py -p /dev/ttyACM0 flash
 烧录内置 ROM 分区（可选，出厂已烧）：
 
 ```bash
-python tools/pack_roms.py /tmp/roms/twin_dragons.nes /tmp/roms/nova.nes -o roms.bin
-python tools/flash_rom.py --container roms.bin
+python tools/flash_rom.py                        # 打包 roms/*.nes 并烧录
+python tools/flash_rom.py --dry-run --out firmware/roms.bin   # 只重建容器
 ```
 
 ## 9. 性能实测（160 MHz，无 PSRAM）
@@ -316,6 +336,9 @@ docs/                   文档与截图
 - 512 KB SRAM：TF 卡 ROM 上限 256 KB；更大 ROM 用 flash 分区（1.9 MB）
 - 仅支持 iNES 格式（不支持 UNIF / FDS）
 - 模拟器是软件实现，个别 Mapper 4/5 复杂游戏可能掉帧
+- 少数 homebrew 未收录：Celeste NES demo（Mapper 4，nofrendo 下 PPU 不使能）、
+  RoboRun-NES（仅 PAL/Dendy 构建，NTSC 核心上提示区域错误），详见
+  [`roms/PROBLEMS.md`](roms/PROBLEMS.md)
 - 无自动存档 / 即时存档（nofrendo 的 snes 存档未接到 FS）
 
 ## 12. 许可与版权
@@ -325,15 +348,16 @@ docs/                   文档与截图
   `components/nofrendo/` 各文件头部
 - **Bluepad32**：Apache-2.0，见 `third_party/bluepad32/LICENSE`
   （其依赖的 BlueKitchen BTstack 对开源项目免费、商业使用需授权）
-- **内置游戏**：Twin Dragons（zlib / CC-BY 3.0）、Nova the Squirrel（GPLv3 /
-  CC-BY-NC-SA 4.0），版权归各自作者，见第 3 节
+- **内置游戏**：16 个免费 / 开源 homebrew（GPL / MIT / zlib / CC / WTFPL / FSFAP
+  等，版权归各自作者）；每个 ROM 的来源、版本、校验和与许可证全文见
+  [`roms/README.md`](roms/README.md) 与 [`roms/licenses/`](roms/licenses/)
 - **不包含任何任天堂版权 ROM**；"Nintendo"、"Super Mario Bros." 等为任天堂商标，
   本项目仅为个人硬件 DIY 用途
 
 ## 13. 快速检查清单
 
 ```
-[+] 上电 → 菜单显示 2 个内置 ROM
+[+] 上电 → 菜单显示 16 个内置 ROM（方向键循环滚动）
 [+] 方向键选择 + A 开始 → 游戏满帧运行
 [+] START+SELECT 回菜单
 [+] 串口 info 显示 fps≈60、heap、rot/scale

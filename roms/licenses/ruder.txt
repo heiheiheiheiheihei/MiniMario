@@ -1,0 +1,15 @@
+# License text for ruder.nes
+# Game:      Zap Ruder (v0.03)
+# Author:    Damian Yerrick
+# Upstream:  https://github.com/pinobatch/zap-ruder, LICENSE.txt
+# SPDX:      FSFAP
+# ----------------------------------------------------------------------------
+# The text below is a verbatim copy of the upstream license file(s) that
+# govern this ROM in the MiniMario free-homebrew ROM set.
+
+Copyright 2011 Damian Yerrick
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.  This file is offered as-is,
+without any warranty.
+

@@ -1,0 +1,14 @@
+# License text for rhde.nes
+# Game:      RHDE: Furniture Fight (v0.07)
+# Author:    Damian Yerrick
+# Upstream:  https://github.com/pinobatch/rhde-nes (release v0.07), LICENSE.txt
+# SPDX:      FSFAP
+# ----------------------------------------------------------------------------
+# The text below is a verbatim copy of the upstream license file(s) that
+# govern this ROM in the MiniMario free-homebrew ROM set.
+
+Copying and distribution of this file, with or without
+modification, are permitted in any medium without royalty provided
+the copyright notice and this notice are preserved in all source
+code copies.  This file is offered as-is, without any warranty.
+

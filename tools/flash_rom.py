@@ -3,18 +3,19 @@
 
 Two modes:
   * default / --pack:  build an MMROM1 container from the given .nes files and
-    flash it (without arguments it packs the two bundled homebrew demos from
-    /tmp/roms: twin_dragons.nes + nova.nes),
+    flash it (without arguments it packs every bundled ROM from the repo
+    roms/ directory, sorted by filename),
   * --file rom.nes:    flash a single raw iNES image at the partition start
                        (legacy layout, the firmware detects "NES\\x1a").
 
 The partition offset/size are read from partitions.csv in the project root.
 
 Examples:
-    python3 tools/flash_rom.py                       # pack + flash the demos
+    python3 tools/flash_rom.py                       # pack + flash roms/*.nes
     python3 tools/flash_rom.py --pack a.nes b.nes
     python3 tools/flash_rom.py --file mygame.nes
     python3 tools/flash_rom.py --pack a.nes --dry-run
+    python3 tools/flash_rom.py --dry-run --out firmware/roms.bin
 """
 import argparse
 import os
@@ -30,9 +31,14 @@ except ImportError:  # running from another directory
 
 PORT_ENV = "MINIMARIO_PORT"
 DEFAULT_PORT = "/dev/ttyACM0"
-DEFAULT_ROMS = ["/tmp/roms/twin_dragons.nes", "/tmp/roms/nova.nes"]
+ROM_DIR = Path(__file__).resolve().parent.parent / "roms"
 FALLBACK_OFFSET = 0x1F0000
 FALLBACK_SIZE = 0x1F0000
+
+
+def default_roms():
+    """Every bundled ROM, sorted by filename (the repo roms/ directory)."""
+    return sorted(str(p) for p in ROM_DIR.glob("*.nes"))
 
 
 def partition_info():
@@ -92,12 +98,15 @@ def main(argv=None):
         image = args.file
         legacy = True
     else:
-        roms = args.pack if args.pack else DEFAULT_ROMS
+        roms = args.pack if args.pack else default_roms()
         missing = [r for r in roms if not os.path.isfile(r)]
         if missing:
             raise SystemExit("error: missing ROM(s): " + ", ".join(missing) +
                              "\nProvide .nes files (e.g. --pack a.nes b.nes) or put the "
-                             "bundled demos into /tmp/roms/.")
+                             f"bundled ROMs into {ROM_DIR}/.")
+        if not roms:
+            raise SystemExit(f"error: no .nes files found in {ROM_DIR}/\n"
+                             "Add bundled ROMs there or use --pack a.nes b.nes.")
         container = build_container(roms)
         if len(container) > part_size:
             raise SystemExit(f"error: container ({len(container)} bytes) does not fit the "
