@@ -105,9 +105,14 @@ static int s_spi_mhz = LCD_SPI_FREQ_MHZ;
  * palettes below keep the logical R,G,B layout for screenshots/host tools and a
  * wire-swapped copy that is what actually gets converted and sent. */
 static inline uint16_t wire_color(uint16_t c) { return (uint16_t)((c >> 8) | (c << 8)); }
+/* Set to true when the panel needs the RGB565 high byte first (the ST7789
+ * datasheet default).  Kept runtime-switchable so the colour calibration screen
+ * can find the right setting on unknown panel revisions. */
+static bool s_wire_swap;
 
 static uint16_t s_pal_ui[16];
 static uint16_t s_pal_ui_wire[16];
+static inline uint16_t to_wire(uint16_t c) { return s_wire_swap ? wire_color(c) : c; }
 static uint8_t s_canvas_mem[DISPLAY_W * DISPLAY_H] __attribute__((aligned(4)));
 static uint8_t *s_canvas;          /* 8bpp, 320*172 bytes (or 172*320 when portrait) */
 static int s_canvas_w = DISPLAY_W; /* logical dims of the canvas for current rotation */
@@ -614,7 +619,7 @@ void display_show_nes_frame(const uint8_t *indexed, const uint16_t *palette565)
     xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
     uint32_t t0 = (uint32_t)esp_timer_get_time();
     for (int i = 0; i < NES_WIRE_PALETTE_SIZE; i++) {
-        s_pal_nes_wire[i] = wire_color(palette565[i]);
+        s_pal_nes_wire[i] = to_wire(palette565[i]);
     }
     nes_frame_t frame = {.indexed = indexed, .pal = s_pal_nes_wire};
     uint32_t conv_us = stream_frame(s_band_v0, s_band_v1 - s_band_v0,
@@ -783,7 +788,7 @@ void display_fill(uint16_t color)
 {
     if (!s_inited) return;
     xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
-    color = wire_color(color);
+    color = to_wire(color);
     for (int i = 0; i < CHUNK_PIXELS; i++) s_chunk[i] = color;
     for (int y = 0; y < PANEL_H; y += CHUNK_ROWS) {
         int rows = PANEL_H - y;
@@ -807,7 +812,7 @@ void display_blit(int x, int y, int w, int h, const uint16_t *pixels)
         if (rows > rows_per_chunk) rows = rows_per_chunk;
         size_t bytes = (size_t)w * rows * 2;
         const uint16_t *src = pixels + (size_t)r * w;
-        for (size_t i = 0; i < (size_t)w * rows; i++) s_chunk[i] = wire_color(src[i]);
+        for (size_t i = 0; i < (size_t)w * rows; i++) s_chunk[i] = to_wire(src[i]);
         panel_write_rect(x, y + r, w, rows, s_chunk, bytes);
     }
     xSemaphoreGiveRecursive(s_lock);
@@ -1007,7 +1012,7 @@ esp_err_t display_init(void)
         0x0010, /* navy */
     };
     memcpy(s_pal_ui, ui_pal, sizeof(ui_pal));
-    for (int i = 0; i < 16; i++) s_pal_ui_wire[i] = wire_color(ui_pal[i]);
+    for (int i = 0; i < 16; i++) s_pal_ui_wire[i] = to_wire(ui_pal[i]);
 
     rebuild_maps();
     s_inited = true;
@@ -1042,38 +1047,43 @@ void display_reset_stats(void)
 
 static void draw_calibration_landscape(void)
 {
-    /* 320x172 landscape layout */
-    display_ui_rect(0, 0, 160, 82, UI_RED);
-    display_ui_rect(160, 0, 160, 82, UI_GREEN);
-    display_ui_rect(0, 90, 160, 70, UI_BLUE);
-    display_ui_rect(160, 90, 160, 70, UI_WHITE);
+    /* Colour test grid: eight cells, each labelled with the colour it should
+     * show, so a user can report "RED shows as blue" without a colour meter. */
+    static const uint8_t cells[8] = {UI_RED,  UI_GREEN,  UI_BLUE,   UI_WHITE,
+                                     UI_CYAN, UI_YELLOW, UI_MAGENTA, UI_GRAY};
+    static const char *names[8] = {"RED", "GREEN", "BLUE", "WHITE",
+                                   "CYAN", "YELLOW", "MAGENTA", "GRAY"};
 
-    display_ui_text(4, 4, "TOP-LEFT", UI_WHITE, UI_RED, 2);
-    display_ui_text(4, 22, "RED", UI_WHITE, UI_RED, 2);
-    display_ui_text(DISPLAY_W - 4 - display_ui_text_width("TOP-RIGHT", 2), 4,
-                    "TOP-RIGHT", UI_BLACK, UI_GREEN, 2);
-    display_ui_text(DISPLAY_W - 4 - display_ui_text_width("GREEN", 2), 22,
-                    "GREEN", UI_BLACK, UI_GREEN, 2);
-    display_ui_text(4, 96, "BLUE", UI_WHITE, UI_BLUE, 2);
-    display_ui_text(4, 120, "BOTTOM-LEFT", UI_WHITE, UI_BLUE, 1);
-    display_ui_text(164, 96, "WHITE", UI_BLACK, UI_WHITE, 2);
-    display_ui_text(164, 120, "BOTTOM-RIGHT", UI_BLACK, UI_WHITE, 1);
+    display_ui_rect(0, 0, DISPLAY_W, 24, UI_BLACK);
+    display_ui_text(0, 3, "COLOUR TEST: labels show expected colour", UI_WHITE, UI_BLACK, 1);
+    char hdr[48];
+    snprintf(hdr, sizeof(hdr), "bgr=%d swap=%d  tap=BGR x2=swap hold=back",
+             s_bgr ? 1 : 0, s_wire_swap ? 1 : 0);
+    display_ui_text(4, 13, hdr, UI_YELLOW, UI_BLACK, 1);
 
-    /* title */
-    display_ui_rect(86, 52, 148, 20, UI_BLACK);
-    display_ui_text(88, 54, "MiniMario", UI_YELLOW, UI_BLACK, 2);
-    display_ui_text(4, 148, "ESP32-C6-LCD-1.47", UI_LGRAY, UI_BLUE, 1);
-
-    /* 16 colour swatch bar */
-    for (int i = 0; i < 16; i++) {
-        display_ui_rect(i * 20, 82, 20, 8, (uint8_t)i);
+    for (int i = 0; i < 8; i++) {
+        int cx = (i & 3) * 80;
+        int cy = 28 + (i / 4) * 40;
+        display_ui_rect(cx, cy, 80, 40, cells[i]);
+        bool light = (cells[i] == UI_WHITE || cells[i] == UI_YELLOW || cells[i] == UI_CYAN ||
+                      cells[i] == UI_GRAY || cells[i] == UI_LGREEN || cells[i] == UI_LGRAY);
+        display_ui_text(cx + 4, cy + 4, names[i], light ? UI_BLACK : UI_WHITE, cells[i], 1);
     }
-    /* greyscale gradient */
-    display_ui_shade(0, 160, DISPLAY_W, 12, true);
 
-    /* on-screen hint: BOOT tap toggles RGB/BGR, hold exits */
-    display_ui_rect(0, 134, DISPLAY_W, 12, UI_BLACK);
-    display_ui_text(4, 136, "BOOT: tap=RGB/BGR  hold=back", UI_YELLOW, UI_BLACK, 1);
+    /* orientation markers (unchanged from before: useful for rot checks) */
+    display_ui_text(4, 118, "TOP-LEFT", UI_WHITE, UI_BLACK, 1);
+    display_ui_text(DISPLAY_W - 4 - 9 * 8, 118, "TOP-RIGHT", UI_WHITE, UI_BLACK, 1);
+    display_ui_text(4, 130, "BOTTOM-LEFT", UI_WHITE, UI_BLACK, 1);
+    display_ui_text(DISPLAY_W - 4 - 12 * 8, 130, "BOTTOM-RIGHT", UI_WHITE, UI_BLACK, 1);
+    display_ui_text(124, 124, "MiniMario", UI_YELLOW, UI_BLACK, 1);
+
+    /* 16 colour swatches + grey gradient */
+    for (int i = 0; i < 16; i++) {
+        display_ui_rect(i * 20, 144, 20, 8, (uint8_t)i);
+    }
+    display_ui_shade(0, 152, DISPLAY_W, 12, true);
+    display_ui_rect(0, 164, DISPLAY_W, 8, UI_BLACK);
+    display_ui_text(4, 164, "serial: test | bgr 0|1", UI_CYAN, UI_BLACK, 1);
 }
 
 static void draw_calibration_portrait(void)
@@ -1107,6 +1117,26 @@ static void draw_calibration_portrait(void)
     }
     /* greyscale gradient */
     display_ui_shade(0, 308, lw, 12, true);
+}
+
+void display_set_wire_swap(bool enable)
+{
+    s_wire_swap = enable;
+    if (s_inited) {
+        xSemaphoreTakeRecursive(s_lock, portMAX_DELAY);
+        for (int i = 0; i < 16; i++) s_pal_ui_wire[i] = to_wire(s_pal_ui[i]);
+        xSemaphoreGiveRecursive(s_lock);
+    }
+    ESP_LOGI(TAG, "colour byte order -> %s", s_wire_swap ? "swap (high byte first)" : "native");
+}
+
+bool display_get_wire_swap(void) { return s_wire_swap; }
+
+void display_debug_palettes(char *buf, size_t len)
+{
+    if (buf == NULL || len == 0) return;
+    int n = snprintf(buf, len, "bgr=%d swap=%d palette:", s_bgr ? 1 : 0, s_wire_swap ? 1 : 0);
+    for (int i = 1; i < 8; i++) n += snprintf(buf + n, len - (size_t)n, " %04X", s_pal_ui[i]);
 }
 
 void display_test_pattern(void)

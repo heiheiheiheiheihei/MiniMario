@@ -41,6 +41,8 @@ void app_set_bgr(int enable);     /* 0|1 colour order fallback */
 int app_get_rotation(void);
 int app_get_scale(void);
 int app_get_bgr(void);
+void app_set_wswap(int enable); /* RGB565 byte order on the wire */
+int app_get_wswap(void);
 
 /* Inject a BOOT-button event (serial console testing only): 1 = tap, 2 = hold. */
 void app_boot_simulate(int kind);

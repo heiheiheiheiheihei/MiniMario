@@ -77,9 +77,11 @@ static int s_wpad_wpa2; /* phone pad: 1 = WPA2-PSK, 0 = open network */
  * TFT_RGB_ORDER=TFT_BGR), so the ST7789 colour-order bit must be set by
  * default: with it cleared red and blue come out swapped. */
 static int s_bgr = 1;
+/* RGB565 byte order on the wire (0 = native word order, 1 = high byte first). */
+static int s_wswap = 0;
 
 static int64_t s_hold_ui_until; /* `test` keeps the test pattern on screen */
-static int64_t s_colour_test_until; /* BOOT double tap: colour calibration view */
+static bool s_colour_test_on; /* BOOT double tap: colour calibration view */
 static int64_t s_colour_test_last_tap;
 static int64_t s_menu_ignore_pad_until; /* ignore held buttons right after quitting a game */
 
@@ -100,6 +102,7 @@ static void settings_load(void)
         if (nvs_get_i8(h, "bgr", &v) == ESP_OK && v >= 0 && v <= 1) s_bgr = v;
         if (nvs_get_i8(h, "wpad", &v) == ESP_OK && (v == 0 || v == 1)) s_wpad = v;
         if (nvs_get_i8(h, "wpauth", &v) == ESP_OK && (v == 0 || v == 1)) s_wpad_wpa2 = v;
+        if (nvs_get_i8(h, "wswap", &v) == ESP_OK && (v == 0 || v == 1)) s_wswap = v;
 
         /* Version 1 firmware stored bgr=0, which produced swapped red/blue on
          * this board; migrate existing NVS contents to the new default. */
@@ -310,6 +313,15 @@ void app_set_wpad_wpa2(int enable)
 int app_get_wpad_wpa2(void) { return s_wpad_wpa2; }
 
 int app_get_bgr(void) { return display_get_bgr() ? 1 : 0; }
+
+void app_set_wswap(int enable)
+{
+    s_wswap = enable ? 1 : 0;
+    display_set_wire_swap(s_wswap != 0);
+    settings_store("wswap", s_wswap);
+}
+
+int app_get_wswap(void) { return s_wswap; }
 
 /* ------------------------------------------------------------------ */
 /* emulator input                                                      */
@@ -735,17 +747,24 @@ static void menu_loop(void)
 
         /* BOOT button: tap = next ROM, hold = play, double tap = colour test. */
         boot_evt_t bev = boot_poll();
-        if (now < s_colour_test_until) {
+        if (s_colour_test_on) {
             /* Colour calibration: tap swaps RGB/BGR (persisted), hold leaves.
              * This is the only way to fix the colour order without a serial
              * console, which matters on a board with a single button. */
             if (bev == BOOT_EVT_SHORT) {
-                app_set_bgr(!app_get_bgr());
-                display_test_pattern();
-                s_colour_test_until = now + 60 * 1000 * 1000;
-                ESP_LOGI(TAG, "colour test: bgr=%d (tap=swap, hold=exit)", app_get_bgr());
+                if (s_colour_test_last_tap && now - s_colour_test_last_tap < BOOT_DOUBLE_US) {
+                    s_colour_test_last_tap = 0;
+                    app_set_wswap(!app_get_wswap());
+                    display_test_pattern();
+                    ESP_LOGI(TAG, "colour test: bgr=%d swap=%d", app_get_bgr(), app_get_wswap());
+                } else {
+                    s_colour_test_last_tap = now;
+                    app_set_bgr(!app_get_bgr());
+                    display_test_pattern();
+                    ESP_LOGI(TAG, "colour test: bgr=%d swap=%d", app_get_bgr(), app_get_wswap());
+                }
             } else if (bev == BOOT_EVT_LONG) {
-                s_colour_test_until = 0;
+                s_colour_test_on = false;
                 ui_menu_refresh();
                 ESP_LOGI(TAG, "colour test: exit (bgr=%d)", app_get_bgr());
             }
@@ -756,7 +775,7 @@ static void menu_loop(void)
             if (s_colour_test_last_tap && now - s_colour_test_last_tap < BOOT_DOUBLE_US) {
                 s_colour_test_last_tap = 0;
                 display_test_pattern();
-                s_colour_test_until = now + 60 * 1000 * 1000;
+                s_colour_test_on = true;
                 ESP_LOGI(TAG, "colour test: on (bgr=%d, tap=swap, hold=exit)", app_get_bgr());
                 continue;
             }
@@ -858,6 +877,7 @@ void app_run(void)
     display_set_rotation((display_rotation_t)s_rot);
     display_set_scale((display_scale_t)s_scale); /* also builds the scale maps */
     display_set_backlight(s_bl);
+    display_set_wire_swap(s_wswap != 0);
     if (s_bgr) display_set_bgr(true);
     acquire_canvas();
 

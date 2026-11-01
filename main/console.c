@@ -145,7 +145,9 @@ static void cmd_help(void)
     out("  wpad debug on|off        Wi-Fi driver debug logs (diagnostics)\n");
     out("  bt scan on|off           pause/resume BLE scanning (diagnostics)\n");
     out("                           'MiniMario' AP, phone opens http://192.168.4.1/\n");
-    out("  test                     show the display test pattern (4 s)\n");
+    out("  test                     show the colour test pattern\n");
+    out("  swap <0|1>               RGB565 byte order sent to the panel\n");
+    out("  pal                      colour order + palette dump (debug)\n");
     out("  clear                    clear the screen\n");
     out("  shot                     dump frame/canvas (indexed + palette)\n");
     out("  shotui                   dump the UI canvas even while a game runs\n");
@@ -633,6 +635,18 @@ static void handle_line(char *line)
         } else {
             out("ERR usage: bt scan on|off\n");
         }
+    } else if (!strcmp(cmd, "swap")) {
+        int v = atoi(arg);
+        if (v < 0 || v > 1) {
+            out("ERR usage: swap <0|1> (RGB565 byte order: 0 native, 1 high byte first)\n");
+        } else {
+            app_set_wswap(v);
+            out("OK swap=%d\n", app_get_wswap());
+        }
+    } else if (!strcmp(cmd, "pal")) {
+        char info[240];
+        display_debug_palettes(info, sizeof(info));
+        out("OK %s\n", info);
     } else if (!strcmp(cmd, "bgr")) {
         int v = atoi(arg);
         if (!*arg || (v != 0 && v != 1)) {

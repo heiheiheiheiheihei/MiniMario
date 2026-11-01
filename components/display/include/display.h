@@ -124,6 +124,15 @@ void display_image_rect(int *x0, int *y0, int *w, int *h);
  * the bar rectangles; the canvas must be acquired. */
 void display_ui_commit_bars(void);
 
+/* RGB565 byte order sent to the panel.  false (default) = native little-endian
+ * word order, true = swap the two bytes (ST7789 datasheet order).  Also
+ * switchable from the colour calibration screen. */
+void display_set_wire_swap(bool enable);
+bool display_get_wire_swap(void);
+
+/* Debug: textual dump of the logical and wire (byte-swapped) UI palette. */
+void display_debug_palettes(char *buf, size_t len);
+
 /* UI canvas: DISPLAY_W x DISPLAY_H (landscape) or DISPLAY_H x DISPLAY_W
  * (portrait rotations) indexed canvas, committed to the panel with the current
  * rotation.  Released while the emulator runs to save RAM.  All draw calls are
