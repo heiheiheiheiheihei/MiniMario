@@ -11,6 +11,16 @@
 |---|---|
 | ![菜单](docs/screenshots/menu.png) | ![校准](docs/screenshots/calib.png) |
 
+真机实拍（Waveshare ESP32-C6-LCD-1.47，USB 供电，TF 卡已插入）：
+
+![真机菜单：SD:OK，ROM:1/2，PAD:wifi](docs/screenshots/device_menu.jpg)
+
+*真机菜单：`SD:OK`、`ROM:1/2`、`PAD:wifi`*
+
+![真机运行 Twin Dragons：两侧 HUD 显示 59.9 fps](docs/screenshots/device_game_twin_dragons.jpg)
+
+*真机运行 Twin Dragons：两侧 HUD 显示 59.9 fps*
+
 ---
 
 ## 1. 功能
