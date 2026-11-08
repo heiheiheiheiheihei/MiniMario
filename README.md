@@ -3,7 +3,7 @@
 把一块 **Waveshare ESP32-C6-LCD-1.47**（ESP32-C6FH4，1.47 寸 ST7789 172×320 屏，TF 卡槽，BLE 5）做成一台迷你 NES 掌机：
 横屏 320×172 输出、蓝牙 BLE 手柄操作、ROM 从 TF 卡或片内 Flash 加载。
 
-> 本仓库是完整可编译工程 + 已烧录固件 + 主机端工具。没有内置任何任天堂版权 ROM。
+> 本仓库是完整可编译工程 + 已烧录固件 + 主机端工具 + B 站介绍视频。没有内置任何任天堂版权 ROM。
 
 ![游戏画面](docs/screenshots/game_twin_dragons_moving.png)
 
@@ -23,6 +23,15 @@
 *真机运行 Twin Dragons：两侧 HUD 显示 59.9 fps*
 
 ---
+
+## 视频介绍
+
+[![MiniMario 介绍视频：一块 ESP32 跑起了 NES，满 60 帧](docs/screenshots/video_cover.jpg)](https://www.bilibili.com/video/BV1Nrx46nECN)
+
+▶ [在哔哩哔哩观看：MiniMario 介绍视频（2:07，1080P60）](https://www.bilibili.com/video/BV1Nrx46nECN)
+
+> GitHub 不支持内嵌 B 站播放器；点击封面或链接跳转 B 站。视频文件在本地
+> `video/out/`，未提交到仓库。
 
 ## 1. 功能
 
