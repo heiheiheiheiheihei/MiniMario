@@ -211,6 +211,7 @@ roms                      ROM 列表
 play <n|flash|path>       启动 ROM（菜单序号 / 片内 flash / TF 卡路径）
 menu | quit               返回菜单
 up/down/select/rescan     菜单操作
+sdtest [clean]            TF 卡自检：写读校验 + 复制内置 ROM 到卡并 rescan（clean 清理）
 key <a|b|select|start|up|down|left|right|none> [+ ...]   注入手柄按键
 pad                       查看当前按键
 boot tap|hold|double      模拟 BOOT 按键短按/长按/双击（测试）

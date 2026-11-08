@@ -121,6 +121,7 @@ terminated by `\n`, echoed back, and every response starts with
 | `menu` / `quit` | stop the game and return to the menu |
 | `up` / `down` / `select` | menu cursor / start selection over serial |
 | `rescan` | rescan TF card + flash partition |
+| `sdtest [clean]` | TF self-test: 32 KB write/read verify, copy the smallest embedded ROM to `/sdcard/mm_sdtest.nes`, rescan and confirm it is listed; `clean` removes it |
 | `key <a\|b\|select\|start\|up\|down\|left\|right\|none> [+…]` | inject pad buttons |
 | `pad` | current pad mask and controller info |
 | `rot <0-3>` | rotation (0/2 portrait 172×320, 1/3 landscape 320×172), persisted |

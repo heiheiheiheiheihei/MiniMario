@@ -91,7 +91,7 @@ See `docs/app.md`. In short:
 
 ```text
 help  info  roms  play <n|flash|path>  menu  quit  up  down  select  rescan
-key <a|b|select|start|up|down|left|right|none>  pad
+sdtest [clean]  key <a|b|select|start|up|down|left|right|none>  pad
 rot <0-3>  scale <0-2>  bl <0-100>  bgr <0|1>  test  clear
 shot  shotraw  ping  reboot
 ```

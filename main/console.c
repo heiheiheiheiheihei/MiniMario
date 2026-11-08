@@ -130,6 +130,9 @@ static void cmd_help(void)
     out("  up | down                move the menu cursor (also: next/prev)\n");
     out("  select                   start the highlighted ROM\n");
     out("  rescan                   rescan TF card + flash partition\n");
+    out("  sdtest [clean]           TF self-test: write/read a temp file, copy an\n");
+    out("                           embedded ROM to the card and rescan it\n");
+    out("                           ('clean' removes the test ROM)\n");
     out("  key <a|b|select|start|up|down|left|right|none> [+ ...]\n");
     out("                           inject pad buttons (key none releases)\n");
     out("  pad                      show the current pad state\n");
@@ -365,6 +368,236 @@ static void cmd_rescan(void)
     vTaskDelay(pdMS_TO_TICKS(80));
 }
 
+/* ------------------------------------------------------------------ */
+/* TF card self-test                                                   */
+/* ------------------------------------------------------------------ */
+
+/* Ask the app task to rescan (it owns the menu/UI state) and wait for it. */
+static bool request_rescan_and_wait(void)
+{
+    uint32_t seq = app_rescan_seq();
+    if (!app_request_rescan()) return false;
+    for (int i = 0; i < 500; i++) { /* 10 s max */
+        if (app_rescan_seq() != seq) return true;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    return false;
+}
+
+static int sdtest_find_sd(const char *name, uint32_t *size)
+{
+    int n = rom_store_count();
+    for (int i = 0; i < n; i++) {
+        const rom_entry_t *e = rom_store_get(i);
+        if (!e || e->source != ROM_SRC_SD) continue;
+        if (name && strcmp(e->name, name) != 0) continue;
+        if (size) *size = e->size;
+        return i;
+    }
+    return -1;
+}
+
+static uint8_t sdtest_pattern(size_t off)
+{
+    return (uint8_t)(off * 7u + 3u);
+}
+
+/* Write a deterministic 32 KB file, read it back and verify every byte. */
+static bool sdtest_rw(void)
+{
+    enum { CHUNK = 8192, CHUNKS = 4 };
+    const char *path = "/sdcard/mm_sdtest.tmp";
+    uint8_t *buf = malloc(CHUNK);
+    if (!buf) {
+        out("ERR sdtest: out of memory\n");
+        return false;
+    }
+    bool ok = true;
+    int64_t t0 = 0, t1 = 0, t2 = 0, t3 = 0;
+
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        free(buf);
+        out("ERR sdtest: cannot create %s\n", path);
+        return false;
+    }
+    t0 = esp_timer_get_time();
+    for (int c = 0; c < CHUNKS && ok; c++) {
+        for (int i = 0; i < CHUNK; i++)
+            buf[i] = sdtest_pattern((size_t)c * CHUNK + (size_t)i);
+        if (fwrite(buf, 1, CHUNK, f) != CHUNK) ok = false;
+    }
+    if (fclose(f) != 0) ok = false;
+    t1 = esp_timer_get_time();
+    if (!ok) {
+        remove(path);
+        free(buf);
+        out("ERR sdtest: write failed\n");
+        return false;
+    }
+
+    f = fopen(path, "rb");
+    if (!f) {
+        remove(path);
+        free(buf);
+        out("ERR sdtest: reopen failed\n");
+        return false;
+    }
+    t2 = esp_timer_get_time();
+    for (int c = 0; c < CHUNKS && ok; c++) {
+        if (fread(buf, 1, CHUNK, f) != CHUNK) {
+            ok = false;
+            break;
+        }
+        for (int i = 0; i < CHUNK; i++) {
+            if (buf[i] != sdtest_pattern((size_t)c * CHUNK + (size_t)i)) {
+                ok = false;
+                break;
+            }
+        }
+    }
+    t3 = esp_timer_get_time();
+    fclose(f);
+    remove(path);
+    free(buf);
+    if (!ok) {
+        out("ERR sdtest: readback verify failed\n");
+        return false;
+    }
+    out("INFO sdtest: rw %uB write=%lldms read=%lldms\n",
+        (unsigned)(CHUNK * CHUNKS), (long long)(t1 - t0) / 1000,
+        (long long)(t3 - t2) / 1000);
+    return true;
+}
+
+/* Copy the smallest embedded ROM to the card, read it back, rescan and
+ * verify it is listed as an SD ROM.  Leaves /sdcard/mm_sdtest.nes. */
+static bool sdtest_copy(int *out_index)
+{
+    int src = -1;
+    uint32_t best = 0xFFFFFFFFu;
+    for (int i = 0; i < rom_store_count(); i++) {
+        const rom_entry_t *e = rom_store_get(i);
+        if (!e || e->source != ROM_SRC_FLASH) continue;
+        if (e->size < best) {
+            best = e->size;
+            src = i;
+        }
+    }
+    if (src < 0) {
+        out("ERR sdtest: no embedded ROM to copy\n");
+        return false;
+    }
+
+    char src_name[40];
+    snprintf(src_name, sizeof(src_name), "%s", rom_store_get(src)->name);
+
+    rom_image_t img;
+    esp_err_t err = rom_store_load(src, &img);
+    if (err != ESP_OK) {
+        out("ERR sdtest: load '%s': %s\n", src_name, esp_err_to_name(err));
+        return false;
+    }
+    const size_t img_len = img.len;
+    const char *name = "mm_sdtest.nes";
+    char path[64];
+    snprintf(path, sizeof(path), "/sdcard/%s", name);
+
+    bool ok = false;
+    FILE *f = fopen(path, "wb");
+    if (f) {
+        ok = fwrite(img.data, 1, img_len, f) == img_len;
+        if (fclose(f) != 0) ok = false;
+    }
+    if (!ok) {
+        remove(path);
+        rom_store_unload();
+        out("ERR sdtest: copy to %s failed\n", path);
+        return false;
+    }
+
+    /* Read it back through the VFS (same path the ROM loader uses). */
+    uint8_t *buf = malloc(4096);
+    if (!buf) {
+        remove(path);
+        rom_store_unload();
+        out("ERR sdtest: out of memory\n");
+        return false;
+    }
+    f = fopen(path, "rb");
+    ok = (f != NULL);
+    size_t off = 0;
+    while (ok && off < img_len) {
+        size_t want = img_len - off;
+        if (want > 4096) want = 4096;
+        ok = fread(buf, 1, want, f) == want &&
+             memcmp(buf, img.data + off, want) == 0;
+        off += want;
+    }
+    if (f) fclose(f);
+    free(buf);
+    if (!ok) {
+        remove(path);
+        rom_store_unload();
+        out("ERR sdtest: readback of %s failed\n", path);
+        return false;
+    }
+    out("INFO sdtest: copied '%s' %uB -> %s\n", src_name, (unsigned)img_len, path);
+    rom_store_unload();
+
+    if (!request_rescan_and_wait()) {
+        out("ERR sdtest: rescan failed\n");
+        return false;
+    }
+    uint32_t size = 0;
+    int idx = sdtest_find_sd(name, &size);
+    if (idx < 0) {
+        out("ERR sdtest: %s not listed after rescan\n", name);
+        return false;
+    }
+    if (size != img_len) {
+        out("ERR sdtest: size mismatch (%u != %u)\n", (unsigned)size, (unsigned)img_len);
+        return false;
+    }
+    out("INFO sdtest: listed as ROM %d '%s' %uB\n", idx, name, (unsigned)size);
+    *out_index = idx;
+    return true;
+}
+
+static void cmd_sdtest(const char *arg)
+{
+    if (app_is_emulating()) {
+        out("ERR busy: emulator running (send 'quit' first)\n");
+        return;
+    }
+    if (!rom_store_sd_mounted()) {
+        out("ERR sdtest: TF card not mounted (%s)\n", rom_store_sd_error());
+        return;
+    }
+    if (strcasecmp(arg, "clean") == 0) {
+        remove("/sdcard/mm_sdtest.nes");
+        remove("/sdcard/mm_sdtest.tmp");
+        if (!request_rescan_and_wait()) {
+            out("ERR sdtest: rescan failed\n");
+            return;
+        }
+        out("OK sdtest clean roms=%d sd_roms=%d\n", rom_store_count(),
+            rom_store_count_source(ROM_SRC_SD));
+        return;
+    }
+    if (arg[0]) {
+        out("ERR usage: sdtest [clean]\n");
+        return;
+    }
+
+    out("INFO sdtest: start (sd mounted)\n");
+    if (!sdtest_rw()) return;
+    int idx = -1;
+    if (!sdtest_copy(&idx)) return;
+    out("OK sdtest roms=%d sd_roms=%d index=%d\n", rom_store_count(),
+        rom_store_count_source(ROM_SRC_SD), idx);
+}
+
 static int parse_key_mask(const char *arg, bool *recognised)
 {
     *recognised = true;
@@ -534,6 +767,8 @@ static void handle_line(char *line)
         cmd_select();
     } else if (!strcmp(cmd, "rescan")) {
         cmd_rescan();
+    } else if (!strcmp(cmd, "sdtest")) {
+        cmd_sdtest(arg);
     } else if (!strcmp(cmd, "key")) {
         cmd_key(arg);
     } else if (!strcmp(cmd, "pad")) {
