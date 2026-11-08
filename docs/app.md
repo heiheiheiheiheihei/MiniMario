@@ -75,7 +75,7 @@ At boot the board initialises NVS, the display, the BLE gamepad backend
   3 falling.nes                     40K [flash]
   ...
  16 twin_dragons.nes                40K [flash]
- SD:OK ROM:1/16 HEAP:210K PAD:none           FPS:--
+ SD:OK ROM:1/16 H:210K PAD:none            FPS:--
  croom.nes  [embedded]
 ------------------------------------------------
  A/START play   B rescan   START+SEL quit
@@ -95,7 +95,8 @@ Nintendo-copyrighted ROM.
 * No ROMs: a friendly screen explains how to copy `.nes` files to the TF card or
   flash them into the `roms` partition.
 * Defaults on a fresh device: rotation 1 (landscape), scale 0 (FIT, 210x172
-  centred), backlight 80 %, RGB colour order. All are persisted in NVS.
+  centred), backlight 80 %, BGR colour order (`bgr=1`). All are persisted in
+  NVS.
 
 The BLE gamepad backend (PS5/Xbox/Switch Pro/8BitDo, …) is scanned
 automatically; until a controller is connected the fallback BOOT button maps to
@@ -194,9 +195,10 @@ the emulator.
 |---|---|
 | `SD:--` / `INFO sd_error=mount failed` | no TF card inserted, or the card is not FAT/exFAT; the board works without it |
 | `roms` shows 0 ROMs | flash the container: `python3 tools/flash_rom.py` |
+| menu / `roms` shows fewer than 16 | app-only flash leaves the old `roms` partition; flash `firmware/roms.bin` at `0x1F0000` or the full image |
 | `ERR load: TF ROM >256 KB …` | TF-card ROM > 256 KB hard cap; flash it instead |
 | `ERR load: OOM …` | TF ROM doesn't fit the current free heap (common with the phone pad on); run `wpad off` and reboot, or flash it |
-| `bgr` colours | `bgr 1` (default) selects the panel BGR colour order; `bgr 0` for RGB. Also reachable from the menu with a BOOT double tap (tap = BGR, double tap = RGB565 byte order, hold = exit). |
+| `bgr` colours | `bgr 1` (default) selects the panel BGR colour order; `bgr 0` for RGB. Host-only: there is no BOOT/menu calibration mode; use `bgr` / `swap` over the console. |
 | menu in portrait after `rot 0` | the menu is designed for landscape; use `rot 1` or `rot 3` |
 | board stuck in "waiting for download" | `flock /tmp/mm_flash.lock python -m esptool --chip esp32c6 -p /dev/ttyACM0 --before default_reset --after hard_reset chip_id` |
 

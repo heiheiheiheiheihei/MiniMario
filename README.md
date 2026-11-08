@@ -7,15 +7,16 @@
 
 ![游戏画面](docs/screenshots/game_twin_dragons_moving.png)
 
-| 菜单 | 显示校准图 |
+| 菜单（16 个内置 ROM） | 颜色测试图（串口 `test`） |
 |---|---|
-| ![菜单](docs/screenshots/menu.png) | ![校准](docs/screenshots/calib.png) |
+| ![菜单](docs/screenshots/menu.png) | ![颜色测试图](docs/screenshots/calib.png) |
 
 真机实拍（Waveshare ESP32-C6-LCD-1.47，USB 供电，TF 卡已插入）：
 
 ![真机菜单：SD:OK，ROM:1/2，PAD:wifi](docs/screenshots/device_menu.jpg)
 
-*真机菜单：`SD:OK`、`ROM:1/2`、`PAD:wifi`*
+*真机菜单实拍：这张拍于烧录 16 ROM 容器之前（当时 `ROM:1/2`，底部还有旧的
+`x2=colour` 提示）；当前固件片内为 16 个 ROM，颜色调整只在串口。*
 
 ![真机运行 Twin Dragons：两侧 HUD 显示 59.9 fps](docs/screenshots/device_game_twin_dragons.jpg)
 
@@ -228,10 +229,10 @@ boot tap|hold|double      模拟 BOOT 按键短按/长按/双击（测试）
 rot <0-3>                 屏幕方向（0/2 竖屏，1/3 横屏），存 NVS
 scale <0-2>               0=FIT 1=FILL 2=PIXEL
 bl <0-100>                背光
-bgr <0|1>                 颜色顺序 RGB/BGR（默认 1=BGR；也可双击 BOOT 进校准图）
+bgr <0|1>                 颜色顺序 RGB/BGR（默认 1=BGR，仅串口）
 wpad on|off|status|test   手机 Wi-Fi 手柄开关 / 状态 / 自检
 wpad press <hex> [ms]     模拟手机按键（如 01=A、0c=Start+Select），自动化测试用
-test                      显示颜色校准图（也可在菜单双击 BOOT）
+test                      显示颜色测试图（仅串口）
 shot                      截图（二进制帧 + 调色板）
 shotui                    导出 UI 画布（游戏运行时含两侧状态栏）
 ping | reboot
@@ -246,20 +247,15 @@ python tools/shot.py --json                    # 元数据
 python tools/serial.py -s "key right+a"        # 注入按键
 ```
 
-### 屏幕方向 / 颜色不对怎么办
+### 屏幕方向 / 颜色（仅串口控制）
 
-**不用电脑、只有 BOOT 键也能校准颜色：**
+颜色调整**只在上位机串口做**：固件和菜单里没有颜色校准入口，BOOT 在菜单里
+只负责“短按切 ROM / 长按启动”。这样单键操作不会误进校准模式。
 
-1. 菜单里**双击 BOOT**（两下间隔 < 0.4 秒）→ 屏幕出现颜色测试图：
-   8 个色块（RED / GREEN / BLUE / WHITE / CYAN / YELLOW / MAGENTA / GRAY），
-   块上的英文就是它**应该**显示的颜色；顶部一行显示当前设置（如 `bgr=1 swap=0`）。
-2. **短按 BOOT** = 切换 BGR ⇄ RGB（每按一次重画）。
-3. **双击 BOOT** = 切换 RGB565 字节序（`swap` 0 ⇄ 1）。
-4. 调到色块和标签一致后，**长按 BOOT** 退出。设置存进 NVS，重启/换 ROM 都保留。
-
-有串口时等价命令：
-
-- `test` 显示颜色测试图；`bgr 0|1` 切换颜色顺序；`swap 0|1` 切换字节序；`pal` 查看当前值。
+- `test` 显示颜色测试图：8 个色块（RED / GREEN / BLUE / WHITE / CYAN /
+  YELLOW / MAGENTA / GRAY），顶部显示当前 `bgr` / `swap`。
+- `bgr 0|1` 切换 MADCTL 颜色顺序（BGR ⇄ RGB，存 NVS）。
+- `swap 0|1` 切换 RGB565 字节序（存 NVS）；`pal` 查看当前值。
 - 图不是正的：`rot 0` / `rot 1` / `rot 2` / `rot 3`（存 NVS）。
 - 画面位置/宽度不对：`scale 0/1/2`。
 
@@ -269,7 +265,7 @@ python tools/serial.py -s "key right+a"        # 注入按键
 > `TFT_RGB_ORDER = TFT_BGR`），MADCTL 必须置 BGR 位，否则**红蓝互换**——
 > 表现就是"青色显示成黄色、蓝色显示成红色"。
 > `swap` 是 RGB565 两个字节的发送顺序，本机保持 0（按原字节序），
-> 换到其它批次/其它面板若整体颜色错乱，可以在校准图里双击 BOOT 试 1。
+> 换到其它批次/其它面板若整体颜色错乱，用串口 `swap 1` 试。
 
 ## 7. 固件文件（firmware/）
 
@@ -282,14 +278,19 @@ python tools/serial.py -s "key right+a"        # 注入按键
 | `roms.bin` | 内置 ROM 容器（0x1F0000） |
 | `flash_all.sh` | 一键烧录脚本 |
 
+> 只烧 `MiniMario-app.bin`（0x10000）**不会更新 `roms` 分区**。如果菜单里
+> 的内置 ROM 少于 16 个，说明片内还是旧容器：补烧 `roms.bin` 到 `0x1F0000`
+> （`python -m esptool --chip esp32c6 -p /dev/ttyACM0 write_flash 0x1F0000 roms.bin`），
+> 或直接烧完整镜像。
+
 ```bash
 cd firmware && ./flash_all.sh /dev/ttyACM0      # 或者
 python -m esptool --chip esp32c6 -p /dev/ttyACM0 write_flash 0x0 MiniMario-full-esp32c6.bin
 ```
 
 > 说明：本文档里的游戏截图是**从设备串口导出的 NES 帧缓冲转成 PNG** 的（`tools/shot.py`），
-> 证明模拟器和渲染链路正确；物理屏幕的方向/镜像/颜色请用 `test` 校准图在真机上确认
-> （见第 6 节），不对就用 `rot` / `bgr` 调整。
+> 证明模拟器和渲染链路正确；物理屏幕的方向/镜像/颜色请用 `test` 颜色测试图在真机上确认
+> （见第 6 节），不对就用串口 `rot` / `bgr` / `swap` 调整。
 
 ## 8. 编译
 
@@ -328,7 +329,7 @@ python tools/flash_rom.py --dry-run --out firmware/roms.bin   # 只重建容器
 ```
 components/nofrendo/    nofrendo NES 内核（GPLv2，已打 C6/IDF5 补丁，见 PATCHES.md）
 components/nes_port/    OSD 层：60 Hz 帧调度、256×240 PPU 直写缓冲、调色板、输入、统计
-components/display/     ST7789 驱动（esp_lcd）+ 横屏软件转置 + UI 画布 + 校准图
+components/display/     ST7789 驱动（esp_lcd）+ 横屏软件转置 + UI 画布 + 颜色测试图
 components/gamepad/     Bluepad32 BLE 手柄/键盘 + BOOT/串口备用输入 + 主机端映射单测
 components/phone_pad/   手机 Wi-Fi 网页虚拟手柄（SoftAP + HTTP + WebSocket）
 components/common/      共享按键位定义
@@ -373,6 +374,6 @@ docs/                   文档与截图
 [+] START+SELECT 回菜单
 [+] 串口 info 显示 fps≈60、heap、rot/scale
 [+] shot 截图 PNG 正常
-[+] test 校准图四个角 RED/GREEN/BLUE/WHITE 正确（不对就双击 BOOT 进校准图按一下切换）
+[+] test 颜色测试图四个角 RED/GREEN/BLUE/WHITE 正确（不对就用串口 bgr/swap 调整）
 [+] BLE 手柄（Xbox fw5.x+）能扫描连接
 ```

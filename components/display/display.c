@@ -106,8 +106,8 @@ static int s_spi_mhz = LCD_SPI_FREQ_MHZ;
  * wire-swapped copy that is what actually gets converted and sent. */
 static inline uint16_t wire_color(uint16_t c) { return (uint16_t)((c >> 8) | (c << 8)); }
 /* Set to true when the panel needs the RGB565 high byte first (the ST7789
- * datasheet default).  Kept runtime-switchable so the colour calibration screen
- * can find the right setting on unknown panel revisions. */
+ * datasheet default).  Kept runtime-switchable so the host console can correct
+ * unknown panel revisions (`swap 0|1`); there is no on-device calibration UI. */
 static bool s_wire_swap;
 
 static uint16_t s_pal_ui[16];
@@ -1042,10 +1042,10 @@ void display_reset_stats(void)
 }
 
 /* ------------------------------------------------------------------------- */
-/* calibration / test pattern                                                */
+/* colour test pattern (host `test` command only)                            */
 /* ------------------------------------------------------------------------- */
 
-static void draw_calibration_landscape(void)
+static void draw_test_pattern_landscape(void)
 {
     /* Colour test grid: eight cells, each labelled with the colour it should
      * show, so a user can report "RED shows as blue" without a colour meter. */
@@ -1057,8 +1057,8 @@ static void draw_calibration_landscape(void)
     display_ui_rect(0, 0, DISPLAY_W, 24, UI_BLACK);
     display_ui_text(0, 3, "COLOUR TEST: labels show expected colour", UI_WHITE, UI_BLACK, 1);
     char hdr[48];
-    snprintf(hdr, sizeof(hdr), "bgr=%d swap=%d  tap=BGR x2=swap hold=back",
-             s_bgr ? 1 : 0, s_wire_swap ? 1 : 0);
+    snprintf(hdr, sizeof(hdr), "bgr=%d swap=%d  (serial only)", s_bgr ? 1 : 0,
+             s_wire_swap ? 1 : 0);
     display_ui_text(4, 13, hdr, UI_YELLOW, UI_BLACK, 1);
 
     for (int i = 0; i < 8; i++) {
@@ -1083,10 +1083,10 @@ static void draw_calibration_landscape(void)
     }
     display_ui_shade(0, 152, DISPLAY_W, 12, true);
     display_ui_rect(0, 164, DISPLAY_W, 8, UI_BLACK);
-    display_ui_text(4, 164, "serial: test | bgr 0|1", UI_CYAN, UI_BLACK, 1);
+    display_ui_text(4, 164, "serial: test | bgr 0|1 | swap 0|1", UI_CYAN, UI_BLACK, 1);
 }
 
-static void draw_calibration_portrait(void)
+static void draw_test_pattern_portrait(void)
 {
     /* 172x320 portrait layout */
     const int lw = display_logical_width(); /* 172 */
@@ -1144,9 +1144,9 @@ void display_test_pattern(void)
     if (display_ui_acquire() != ESP_OK) return;
     display_ui_clear(UI_BLACK);
     if (is_portrait()) {
-        draw_calibration_portrait();
+        draw_test_pattern_portrait();
     } else {
-        draw_calibration_landscape();
+        draw_test_pattern_landscape();
     }
     display_ui_commit();
 }

@@ -339,11 +339,18 @@ static void draw_status(const layout_t *L, int count)
 
     char line[72];
     if (L->w >= 300) {
-        snprintf(line, sizeof(line), "SD:%s ROM:%d/%d HEAP:%dK PAD:%s",
+        /* Keep "FPS:" right-aligned and clip the left status to the space that
+         * is actually left: with "ROM:16/16" the old "HEAP:" line collided with
+         * it.  "H:" keeps the heap value and leaves room for PAD + FPS. */
+        char left[72];
+        snprintf(left, sizeof(left), "SD:%s ROM:%d/%d H:%dK PAD:%s",
                  rom_store_sd_mounted() ? "OK" : "--", count > 0 ? s_sel + 1 : 0, count, heap_kb,
                  pad);
-        text(4, L->status_y, line, UI_LGRAY, UI_BLACK, 1);
         int fx = L->w - 4 - display_ui_text_width("FPS:", 1) - display_ui_text_width(fps, 1);
+        int max_chars = (fx - 8) / 8;
+        if (max_chars < 0) max_chars = 0;
+        snprintf(line, sizeof(line), "%.*s", max_chars, left);
+        text(4, L->status_y, line, UI_LGRAY, UI_BLACK, 1);
         text(fx, L->status_y, "FPS:", UI_DGRAY, UI_BLACK, 1);
         text(fx + display_ui_text_width("FPS:", 1), L->status_y, fps, UI_LGRAY, UI_BLACK, 1);
     } else {
@@ -386,12 +393,12 @@ static void draw_footer(const layout_t *L)
     if (L->footer_lines >= 3) {
         text(4, y, "A play  B rescan", UI_CYAN, UI_BLACK, 1);
         text(4, y + 10, "BOOT tap=next hold=play", UI_YELLOW, UI_BLACK, 1);
-        text(4, y + 20, "x2 colour test | SEL+STA quit", UI_CYAN, UI_BLACK, 1);
+        text(4, y + 20, "SEL+STA quit", UI_CYAN, UI_BLACK, 1);
         return;
     }
     display_ui_rect(0, y - 3, L->w, 1, UI_DGRAY);
     text(4, y, "A/START play   B rescan   SEL+STA quit", UI_CYAN, UI_BLACK, 1);
-    text(4, y + 10, "BOOT tap=next hold=play x2=colour", UI_YELLOW, UI_BLACK, 1);
+    text(4, y + 10, "BOOT tap=next hold=play", UI_YELLOW, UI_BLACK, 1);
 }
 
 /* ------------------------------------------------------------------ */

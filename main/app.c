@@ -81,8 +81,6 @@ static int s_bgr = 1;
 static int s_wswap = 0;
 
 static int64_t s_hold_ui_until; /* `test` keeps the test pattern on screen */
-static bool s_colour_test_on; /* BOOT double tap: colour calibration view */
-static int64_t s_colour_test_last_tap;
 static int64_t s_menu_ignore_pad_until; /* ignore held buttons right after quitting a game */
 
 /* ------------------------------------------------------------------ */
@@ -745,41 +743,10 @@ static void menu_loop(void)
         int64_t now = esp_timer_get_time();
         uint8_t pad = gamepad_read() | phone_pad_read();
 
-        /* BOOT button: tap = next ROM, hold = play, double tap = colour test. */
+        /* BOOT button: tap = next ROM, hold = play.  Colour order / byte
+         * order are host-only settings (`bgr`, `swap` over the console). */
         boot_evt_t bev = boot_poll();
-        if (s_colour_test_on) {
-            /* Colour calibration: tap swaps RGB/BGR (persisted), hold leaves.
-             * This is the only way to fix the colour order without a serial
-             * console, which matters on a board with a single button. */
-            if (bev == BOOT_EVT_SHORT) {
-                if (s_colour_test_last_tap && now - s_colour_test_last_tap < BOOT_DOUBLE_US) {
-                    s_colour_test_last_tap = 0;
-                    app_set_wswap(!app_get_wswap());
-                    display_test_pattern();
-                    ESP_LOGI(TAG, "colour test: bgr=%d swap=%d", app_get_bgr(), app_get_wswap());
-                } else {
-                    s_colour_test_last_tap = now;
-                    app_set_bgr(!app_get_bgr());
-                    display_test_pattern();
-                    ESP_LOGI(TAG, "colour test: bgr=%d swap=%d", app_get_bgr(), app_get_wswap());
-                }
-            } else if (bev == BOOT_EVT_LONG) {
-                s_colour_test_on = false;
-                ui_menu_refresh();
-                ESP_LOGI(TAG, "colour test: exit (bgr=%d)", app_get_bgr());
-            }
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
-        }
         if (bev == BOOT_EVT_SHORT) {
-            if (s_colour_test_last_tap && now - s_colour_test_last_tap < BOOT_DOUBLE_US) {
-                s_colour_test_last_tap = 0;
-                display_test_pattern();
-                s_colour_test_on = true;
-                ESP_LOGI(TAG, "colour test: on (bgr=%d, tap=swap, hold=exit)", app_get_bgr());
-                continue;
-            }
-            s_colour_test_last_tap = now;
             ui_menu_move(1);
         } else if (bev == BOOT_EVT_LONG) {
             if (app_request_play(-1)) continue;

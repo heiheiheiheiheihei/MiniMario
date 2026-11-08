@@ -125,8 +125,8 @@ void display_image_rect(int *x0, int *y0, int *w, int *h);
 void display_ui_commit_bars(void);
 
 /* RGB565 byte order sent to the panel.  false (default) = native little-endian
- * word order, true = swap the two bytes (ST7789 datasheet order).  Also
- * switchable from the colour calibration screen. */
+ * word order, true = swap the two bytes (ST7789 datasheet order).  Host-only
+ * setting: there is no on-device colour calibration screen. */
 void display_set_wire_swap(bool enable);
 bool display_get_wire_swap(void);
 
