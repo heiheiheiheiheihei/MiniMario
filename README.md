@@ -198,7 +198,7 @@ python tools/flash_rom.py --dry-run --out firmware/roms.bin   # 只重建容器
 ```
 
 > 片内 `roms` 分区 1.9 MB，用的是 flash mmap，不占 512 KB SRAM。
-> TF 卡的 ROM 会读进堆内存，上限 256 KB（更大的请用方式 B）。
+> TF 卡的 ROM 会读进堆内存；**256 KB 只是硬上限，不是实际可用值**。实测冷启动且 `wpad off` 时 40 KB 的 ROM 可运行；`wpad on` 时最大连续空闲块约 14 KB，40 KB 就会 OOM。更大的 ROM 请用方式 B（flash mmap）。
 
 ## 6. 串口控制台
 
@@ -334,7 +334,7 @@ docs/                   文档与截图
 
 - **没有声音**（板子无音频硬件）
 - **BLE only**：PS5/PS4/Switch/Wii 等经典蓝牙手柄不能直连（硬件限制）；手机控制用 Wi-Fi 网页手柄（4.4）或安卓 BLE 键盘 App（4.5）
-- 512 KB SRAM：TF 卡 ROM 上限 256 KB；更大 ROM 用 flash 分区（1.9 MB）
+- 512 KB SRAM：TF 卡 ROM 受空闲堆/碎片限制（实测 40 KB 可运行，需 `wpad off` + 冷启动）；更大 ROM 用 flash 分区（1.9 MB）
 - 仅支持 iNES 格式（不支持 UNIF / FDS）
 - 模拟器是软件实现，个别 Mapper 4/5 复杂游戏可能掉帧
 - 少数 homebrew 未收录：Celeste NES demo（Mapper 4，nofrendo 下 PPU 不使能）、

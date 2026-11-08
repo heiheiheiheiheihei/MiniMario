@@ -16,8 +16,11 @@ There are two ways to get ROMs onto the board:
   (`/sdcard/NAME.nes`). Subdirectories are not scanned.
 * The card slot shares the LCD's SPI2 bus; it is mounted at boot and can be
   re-scanned with `B` in the menu or the `rescan` console command.
-* TF-card ROMs are copied into RAM: **max 256 KB** per ROM (the emulator needs
-  the remaining SRAM). Larger games must be flashed (below).
+* TF-card ROMs are copied into the internal heap. The 256 KB constant is a
+  **hard cap, not the practical limit**: a cold boot with the phone pad off
+  leaves ~80 KB free (a 40 KB ROM was verified running), while the phone pad
+  on leaves only ~14 KB in the largest free block, so even 40 KB fails with
+  OOM. Larger games must be flashed (below).
 * ROMs are validated on scan (iNES header `NES\x1a`, `.nes` extension, case
   insensitive). Invalid files are skipped and logged.
 * Without a card the board still boots and uses the embedded ROMs.
@@ -191,8 +194,8 @@ the emulator.
 |---|---|
 | `SD:--` / `INFO sd_error=mount failed` | no TF card inserted, or the card is not FAT/exFAT; the board works without it |
 | `roms` shows 0 ROMs | flash the container: `python3 tools/flash_rom.py` |
-| `ERR load: ROM too large …` | TF-card ROM > 256 KB; flash it instead |
-| `ERR load: out of memory` | close other features / use the embedded (mmap) copy |
+| `ERR load: TF ROM >256 KB …` | TF-card ROM > 256 KB hard cap; flash it instead |
+| `ERR load: OOM …` | TF ROM doesn't fit the current free heap (common with the phone pad on); run `wpad off` and reboot, or flash it |
 | `bgr` colours | `bgr 1` (default) selects the panel BGR colour order; `bgr 0` for RGB. Also reachable from the menu with a BOOT double tap (tap = BGR, double tap = RGB565 byte order, hold = exit). |
 | menu in portrait after `rot 0` | the menu is designed for landscape; use `rot 1` or `rot 3` |
 | board stuck in "waiting for download" | `flock /tmp/mm_flash.lock python -m esptool --chip esp32c6 -p /dev/ttyACM0 --before default_reset --after hard_reset chip_id` |

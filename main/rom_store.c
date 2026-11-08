@@ -597,11 +597,11 @@ const char *rom_store_error_str(esp_err_t err)
     case ESP_OK:
         return "ok";
     case ESP_ERR_INVALID_SIZE:
-        return "ROM too large for RAM (TF limit 256 KB) - flash it with tools/flash_rom.py";
+        return "TF ROM >256 KB - flash it";
     case ESP_ERR_NOT_FOUND:
         return "ROM file not found (no TF card?)";
     case ESP_ERR_NO_MEM:
-        return "out of memory while loading the ROM";
+        return "OOM - wpad off, reboot";
     case ESP_ERR_INVALID_RESPONSE:
         return "not a valid iNES ROM (missing NES\\x1a header)";
     case ESP_ERR_INVALID_STATE:

@@ -291,7 +291,7 @@ static void draw_no_rom_screen(const layout_t *L)
     center_text(L->w, y, "NO ROM FOUND", UI_RED, UI_BLACK, 2);
     y += 22;
     if (L->w >= 300) {
-        center_text(L->w, y, "Copy .nes files (max 256K) to the", UI_WHITE, UI_BLACK, 1);
+        center_text(L->w, y, "Copy .nes files to the", UI_WHITE, UI_BLACK, 1);
         y += 10;
         center_text(L->w, y, "root of the TF card, or flash them", UI_WHITE, UI_BLACK, 1);
         y += 10;

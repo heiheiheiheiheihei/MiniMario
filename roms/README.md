@@ -73,8 +73,9 @@ python3 tools/pack_roms.py --list firmware/roms.bin # inspect a container
 ```
 
 The firmware menu shows these files in sorted order (7 rows, scrolls). TF-card
-ROMs (`/sdcard/*.nes`) are listed as well, but are RAM-loaded and capped at
-256 KB; the embedded ROMs above use `esp_partition_mmap` and cost no heap
+ROMs (`/sdcard/*.nes`) are listed as well, but are RAM-loaded with a 256 KB
+hard cap; the practical limit is the free heap (see ../docs/app.md). The
+embedded ROMs above use `esp_partition_mmap` and cost no heap
 (`Super Tilt Bro.` is 512 KB and therefore flash-only).
 
 To add your own legally-owned ROM, either copy it to the TF card or drop it in

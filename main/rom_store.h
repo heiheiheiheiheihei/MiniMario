@@ -4,8 +4,9 @@
  * Two ROM sources, merged into one list:
  *   1. TF card (FAT, mounted at /sdcard).  The card slot shares the LCD SPI2
  *      bus, so the card is attached with sdspi_host_init_device() after
- *      display_init() has created the bus.  Files are copied to the heap and
- *      capped at ROM_STORE_MAX_SD_BYTES (the emulator needs the rest of RAM).
+ *      display_init() has created the bus.  Files are copied to the internal
+ *      heap and capped at ROM_STORE_MAX_SD_BYTES (a hard cap; the practical
+ *      limit is the largest free contiguous block, see docs/app.md).
  *   2. The "roms" data partition (type 0x40/subtype 0x01, offset 0x1F0000).
  *      Preferred layout is the MMROM1 container (see tools/pack_roms.py):
  *          magic  "MMROM1\0\0"                       8 bytes

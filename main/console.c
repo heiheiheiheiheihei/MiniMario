@@ -211,8 +211,8 @@ static void cmd_roms(void)
             e->name);
     }
     if (n == 0) {
-        out("HINT copy .nes files (max 256K) to the TF card root, or flash the\n");
-        out("HINT embedded container: tools/flash_rom.py\n");
+        out("HINT copy .nes files to the TF card root, or flash the\n");
+        out("HINT embedded container: tools/flash_rom.py (TF ROMs are heap-limited)\n");
     }
 }
 
